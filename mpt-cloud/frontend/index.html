@@ -149,7 +149,8 @@
             <select id="brandFilter" onchange="renderProducts()">
                 <option value="">전체 브랜드</option>
             </select>
-            <button class="sort-btn" id="sortBtn" onclick="toggleSort()">등록대비 ↓</button>
+            <button class="sort-btn" id="sortBtn" onclick="toggleSort()">할인 큰순 ↓</button>
+            <button id="soldoutBtn" onclick="toggleSoldout()">품절 숨기기</button>
             <span class="count" id="countLabel"></span>
         </div>
 
@@ -179,7 +180,8 @@
 
         // ============ STATE ============
         let allProducts = [];
-        let sortMode = 'discount_desc'; // 등록대비 싼 순
+        let sortMode = 'discount_desc';
+        let hideSoldout = false;
         let chartInstance = null;
 
         // ============ INIT ============
@@ -221,6 +223,7 @@
             const brand = document.getElementById('brandFilter').value;
 
             let list = allProducts;
+            if (hideSoldout) list = list.filter(p => !p.is_sold_out);
             if (cat) list = list.filter(p => p.category === cat);
             if (brand) list = list.filter(p => p.brand_name === brand);
 
@@ -299,6 +302,14 @@
             sortIdx = (sortIdx + 1) % sortModes.length;
             sortMode = sortModes[sortIdx].key;
             document.getElementById('sortBtn').textContent = sortModes[sortIdx].label;
+            renderProducts();
+        }
+
+        function toggleSoldout() {
+            hideSoldout = !hideSoldout;
+            const btn = document.getElementById('soldoutBtn');
+            btn.textContent = hideSoldout ? '품절 보기' : '품절 숨기기';
+            btn.classList.toggle('active', hideSoldout);
             renderProducts();
         }
 
@@ -471,7 +482,7 @@
         // ============ BOOKMARKLET ============
         function initBookmarklet() {
             const pageUrl = window.location.origin + window.location.pathname;
-            const code = "javascript:void(function(){var p='" + pageUrl + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;var w=window.open(p);w.addEventListener('load',function(){w.mptBatchRegister(all).then(function(r){w.alert('Done! New:'+r.success+' Skip:'+r.skip+' Fail:'+r.fail)})})}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
+            const code = "javascript:void(function(){var p='" + pageUrl + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;var w=window.open(p);var tries=0;var check=setInterval(function(){tries++;if(w.mptBatchRegister){clearInterval(check);w.mptBatchRegister(all).then(function(r){w.alert('Done! New:'+r.success+' Skip:'+r.skip+' Fail:'+r.fail)})}else if(tries>50){clearInterval(check);alert('Page load timeout')}},200)}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
             document.getElementById('bookmarkletLink').href = code;
         }
 
