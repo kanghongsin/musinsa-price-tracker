@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>무신사 가격 추적기</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 960px; margin: 0 auto; padding: 16px; }
+        h1 { text-align: center; margin: 16px 0 24px; font-size: 22px; }
+
+        /* 상품 등록 */
+        .register-box { display: flex; gap: 8px; margin-bottom: 16px; }
+        .register-box input {
+            flex: 1; padding: 10px 14px; border: 2px solid #ddd; border-radius: 8px;
+            font-size: 14px; outline: none;
+        }
+        .register-box input:focus { border-color: #000; }
+        .register-box button {
+            padding: 10px 20px; background: #000; color: #fff; border: none;
+            border-radius: 8px; font-size: 14px; cursor: pointer; white-space: nowrap;
+        }
+        .register-box button:disabled { background: #999; }
+
+        /* 필터/정렬 */
+        .filter-bar {
+            display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+        }
+        .filter-bar select, .filter-bar button {
+            padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; background: #fff; cursor: pointer; color: #333;
+        }
+        .filter-bar select:focus { border-color: #000; }
+        .filter-bar .active { background: #000; color: #fff; border-color: #000; }
+        .filter-bar .sort-btn { min-width: 90px; }
+        .filter-bar .count { font-size: 13px; color: #888; margin-left: auto; }
+
+        /* 상품 목록 */
+        .product-list { display: grid; gap: 12px; }
+        .product-card {
+            display: flex; gap: 14px; background: #fff; border-radius: 12px;
+            padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); cursor: pointer;
+            transition: box-shadow 0.2s; position: relative;
+        }
+        .product-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .product-card img { width: 90px; height: 90px; object-fit: cover; border-radius: 8px; }
+        .product-info { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+        .product-info .brand { font-size: 11px; color: #888; margin-bottom: 2px; }
+        .product-info .category-tag {
+            display: inline-block; font-size: 10px; color: #666; background: #f0f0f0;
+            padding: 1px 6px; border-radius: 3px; margin-left: 4px;
+        }
+        .product-info .name { font-size: 14px; font-weight: 600; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .product-info .price-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .product-info .current-price { font-size: 16px; font-weight: 700; }
+        .product-info .original-price { font-size: 12px; color: #999; text-decoration: line-through; }
+        .product-info .discount-badge {
+            font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+        }
+        .badge-down { background: #fee; color: #e33; }
+        .badge-up { background: #eef; color: #66a; }
+        .badge-same { background: #f5f5f5; color: #999; }
+        .badge-soldout { background: #f0f0f0; color: #999; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+        .product-card.sold-out { opacity: 0.55; }
+        .product-card.sold-out img { filter: grayscale(0.8); }
+        .product-info .lowest { font-size: 11px; color: #e44; margin-top: 2px; }
+        .product-actions { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+        .btn-sm {
+            padding: 5px 10px; background: none; border: 1px solid #ddd;
+            border-radius: 6px; font-size: 11px; cursor: pointer; color: #999; text-decoration: none; text-align: center;
+        }
+        .btn-sm:hover { border-color: #000; color: #333; }
+        .btn-del:hover { border-color: #e44; color: #e44; }
+
+        /* 북마클릿 */
+        .bookmarklet-section {
+            background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .bookmarklet-section h3 { font-size: 14px; margin-bottom: 10px; }
+        .steps { font-size: 12px; color: #666; line-height: 1.8; }
+        .steps b { color: #333; }
+        .bookmarklet-link {
+            display: inline-block; padding: 7px 16px; background: #000; color: #fff;
+            border-radius: 6px; text-decoration: none; font-size: 12px; font-weight: 600;
+            cursor: grab; margin: 10px 0 4px;
+        }
+        .bm-hint { font-size: 10px; color: #aaa; }
+        .toggle-btn { background: none; border: 1px solid #ddd; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; color: #666; }
+        .guide-content { display: none; margin-top: 10px; }
+        .guide-content.show { display: block; }
+
+        /* 모달 */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 100; justify-content: center; align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal { background: #fff; border-radius: 16px; padding: 20px; width: 92%; max-width: 700px; }
+        .modal h2 { font-size: 16px; margin-bottom: 14px; padding-right: 30px; }
+        .modal .close-btn { float: right; background: none; border: none; font-size: 22px; cursor: pointer; color: #999; }
+        .chart-container { position: relative; height: 280px; }
+
+        .empty-state { text-align: center; padding: 50px 20px; color: #999; font-size: 14px; }
+        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 200; display: none; }
+        .toast.show { display: block; }
+
+        @media (max-width: 600px) {
+            .product-card img { width: 70px; height: 70px; }
+            .product-info .name { font-size: 13px; }
+            .product-info .current-price { font-size: 15px; }
+            .filter-bar { gap: 6px; }
+            .filter-bar select, .filter-bar button { padding: 6px 10px; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MUSINSA Price Tracker</h1>
+
+        <div class="register-box">
+            <input type="text" id="urlInput" placeholder="무신사 상품 URL 또는 상품번호">
+            <button id="registerBtn" onclick="registerProduct()">등록</button>
+        </div>
+
+        <div class="bookmarklet-section">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>무신사 좋아요 한번에 등록</h3>
+                <button class="toggle-btn" onclick="toggleGuide()">사용법</button>
+            </div>
+            <div class="guide-content" id="guideContent">
+                <div class="steps">
+                    <b>1.</b> 아래 버튼을 <b>북마크바로 드래그</b><br>
+                    <b>2.</b> 무신사 로그인 후 <a href="https://www.musinsa.com/like/goods" target="_blank">좋아요 페이지</a> 접속<br>
+                    <b>3.</b> 북마크바에서 클릭 → 자동 등록
+                </div>
+                <a class="bookmarklet-link" id="bookmarkletLink" href="#">좋아요 추적등록</a>
+                <div class="bm-hint">이 버튼을 북마크바로 드래그</div>
+            </div>
+        </div>
+
+        <div class="filter-bar">
+            <select id="categoryFilter" onchange="renderProducts()">
+                <option value="">전체 카테고리</option>
+            </select>
+            <select id="brandFilter" onchange="renderProducts()">
+                <option value="">전체 브랜드</option>
+            </select>
+            <button class="sort-btn" id="sortBtn" onclick="toggleSort()">등록대비 ↓</button>
+            <span class="count" id="countLabel"></span>
+        </div>
+
+        <div id="productList" class="product-list">
+            <div class="empty-state">불러오는 중...</div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="chartModal">
+        <div class="modal">
+            <button class="close-btn" onclick="closeChart()">&times;</button>
+            <h2 id="chartTitle">가격 추이</h2>
+            <div class="chart-container">
+                <canvas id="priceChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // ============ CONFIG ============
+        // Supabase 설정 (본인 값으로 교체)
+        const SUPABASE_URL = 'https://nnfhxblnlcqqiyzlfaea.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_k7PBsrnNX3b6T6E2W-iztQ_0VU2B3l5';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // ============ STATE ============
+        let allProducts = [];
+        let sortMode = 'discount_desc'; // 등록대비 싼 순
+        let chartInstance = null;
+
+        // ============ INIT ============
+        async function init() {
+            await loadProducts();
+            initBookmarklet();
+        }
+
+        // ============ DATA ============
+        async function loadProducts() {
+            const { data, error } = await supabase.from('product').select('*').order('updated_at', { ascending: false });
+            if (error) {
+                document.getElementById('productList').innerHTML = '<div class="empty-state">DB 연결 실패. Supabase 설정을 확인하세요.</div>';
+                return;
+            }
+            allProducts = data || [];
+            updateFilters();
+            renderProducts();
+        }
+
+        function updateFilters() {
+            const cats = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
+            const brands = [...new Set(allProducts.map(p => p.brand_name).filter(Boolean))].sort();
+
+            const catSel = document.getElementById('categoryFilter');
+            const brandSel = document.getElementById('brandFilter');
+            const catVal = catSel.value;
+            const brandVal = brandSel.value;
+
+            catSel.innerHTML = '<option value="">전체 카테고리</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('');
+            brandSel.innerHTML = '<option value="">전체 브랜드</option>' + brands.map(b => `<option value="${b}">${b}</option>`).join('');
+
+            catSel.value = catVal;
+            brandSel.value = brandVal;
+        }
+
+        function getFiltered() {
+            const cat = document.getElementById('categoryFilter').value;
+            const brand = document.getElementById('brandFilter').value;
+
+            let list = allProducts;
+            if (cat) list = list.filter(p => p.category === cat);
+            if (brand) list = list.filter(p => p.brand_name === brand);
+
+            // 정렬
+            list = [...list];
+            if (sortMode === 'discount_desc') {
+                list.sort((a, b) => getDiscountRate(b) - getDiscountRate(a));
+            } else if (sortMode === 'discount_asc') {
+                list.sort((a, b) => getDiscountRate(a) - getDiscountRate(b));
+            } else if (sortMode === 'price_asc') {
+                list.sort((a, b) => a.current_price - b.current_price);
+            } else if (sortMode === 'price_desc') {
+                list.sort((a, b) => b.current_price - a.current_price);
+            }
+
+            return list;
+        }
+
+        function getDiscountRate(p) {
+            if (!p.initial_price || p.initial_price === 0) return 0;
+            return ((p.initial_price - p.current_price) / p.initial_price) * 100;
+        }
+
+        // ============ RENDER ============
+        function renderProducts() {
+            const list = getFiltered();
+            const container = document.getElementById('productList');
+            document.getElementById('countLabel').textContent = list.length + '개';
+
+            if (list.length === 0) {
+                container.innerHTML = '<div class="empty-state">상품이 없습니다. URL을 입력하거나 북마클릿으로 등록하세요!</div>';
+                return;
+            }
+
+            container.innerHTML = list.map(p => {
+                const dr = getDiscountRate(p);
+                let badgeClass = 'badge-same', badgeText = '-';
+                if (dr > 0) { badgeClass = 'badge-down'; badgeText = '↓' + dr.toFixed(0) + '%'; }
+                else if (dr < 0) { badgeClass = 'badge-up'; badgeText = '↑' + Math.abs(dr).toFixed(0) + '%'; }
+
+                return `
+                <div class="product-card${p.is_sold_out ? ' sold-out' : ''}" onclick="showChart(${p.id}, '${esc(p.name)}')">
+                    <img src="${p.image_url || ''}" alt="" onerror="this.src='https://placehold.co/90x90?text=No+Img'">
+                    <div class="product-info">
+                        <div>
+                            <span class="brand">${p.brand_name || ''}</span>
+                            ${p.category ? `<span class="category-tag">${p.category}</span>` : ''}
+                            ${p.is_sold_out ? '<span class="badge-soldout">품절</span>' : ''}
+                        </div>
+                        <div class="name" title="${esc(p.name)}">${p.name}</div>
+                        <div class="price-row">
+                            <span class="current-price">${fmt(p.current_price)}원</span>
+                            ${p.original_price > p.current_price ? `<span class="original-price">${fmt(p.original_price)}원</span>` : ''}
+                            <span class="discount-badge ${badgeClass}">${badgeText}</span>
+                        </div>
+                        ${p.lowest_price < p.current_price ? `<div class="lowest">최저 ${fmt(p.lowest_price)}원</div>` : ''}
+                    </div>
+                    <div class="product-actions" onclick="event.stopPropagation()">
+                        <a class="btn-sm" href="${p.product_url}" target="_blank">무신사</a>
+                        <button class="btn-sm btn-del" onclick="deleteProduct(${p.id})">삭제</button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // ============ SORT ============
+        const sortModes = [
+            { key: 'discount_desc', label: '할인 큰순 ↓' },
+            { key: 'discount_asc', label: '할인 작은순 ↑' },
+            { key: 'price_asc', label: '가격 낮은순 ↑' },
+            { key: 'price_desc', label: '가격 높은순 ↓' },
+        ];
+        let sortIdx = 0;
+
+        function toggleSort() {
+            sortIdx = (sortIdx + 1) % sortModes.length;
+            sortMode = sortModes[sortIdx].key;
+            document.getElementById('sortBtn').textContent = sortModes[sortIdx].label;
+            renderProducts();
+        }
+
+        // ============ REGISTER ============
+        async function registerProduct() {
+            const input = document.getElementById('urlInput');
+            const btn = document.getElementById('registerBtn');
+            const raw = input.value.trim();
+            if (!raw) return;
+
+            const goodsNo = extractGoodsNo(raw);
+            if (!goodsNo) { showToast('Invalid URL'); return; }
+
+            btn.disabled = true; btn.textContent = '...';
+
+            try {
+                // 이미 등록?
+                const { data: existing } = await supabase.from('product').select('id').eq('id', goodsNo);
+                if (existing && existing.length > 0) {
+                    showToast('이미 등록된 상품입니다');
+                    return;
+                }
+
+                // 무신사 API로 정보 조회
+                const info = await fetchMusinsaGoods(goodsNo);
+                if (!info) { showToast('상품 정보를 가져올 수 없습니다'); return; }
+
+                const product = {
+                    id: goodsNo,
+                    name: info.name,
+                    image_url: info.image_url,
+                    product_url: 'https://www.musinsa.com/products/' + goodsNo,
+                    brand_name: info.brand_name,
+                    category: info.category,
+                    current_price: info.price,
+                    original_price: info.original_price,
+                    lowest_price: info.price,
+                    initial_price: info.price,
+                    is_sold_out: info.is_sold_out,
+                };
+
+                await supabase.from('product').upsert(product);
+                await supabase.from('price_history').insert({
+                    product_id: goodsNo,
+                    price: info.price,
+                    original_price: info.original_price,
+                });
+
+                input.value = '';
+                showToast('등록 완료!');
+                await loadProducts();
+            } catch (e) {
+                showToast('Error: ' + e.message);
+            } finally {
+                btn.disabled = false; btn.textContent = '등록';
+            }
+        }
+
+        async function fetchMusinsaGoods(goodsNo) {
+            try {
+                const r = await fetch('https://goods-detail.musinsa.com/api2/goods/' + goodsNo);
+                const d = await r.json();
+                if (d.meta.result !== 'SUCCESS' || !d.data) return null;
+                const g = d.data;
+                const gp = g.goodsPrice || {};
+                const headDesc = g.headDesc ? g.headDesc + ' ' : '';
+                let thumb = g.thumbnailImageUrl || '';
+                if (thumb && !thumb.startsWith('http')) thumb = 'https://image.msscdn.net' + thumb;
+
+                return {
+                    name: headDesc + (g.goodsNm || ''),
+                    image_url: thumb,
+                    brand_name: g.brandInfo ? g.brandInfo.brandName : '',
+                    category: g.category ? g.category.categoryDepth1Name : '',
+                    price: gp.salePrice || 0,
+                    original_price: gp.normalPrice || 0,
+                    is_sold_out: !!g.isSoldOut,
+                };
+            } catch (e) { return null; }
+        }
+
+        function extractGoodsNo(url) {
+            if (/^\d+$/.test(url)) return parseInt(url);
+            const m = url.match(/(?:products|goods|app\/goods)\/?(\d+)/);
+            return m ? parseInt(m[1]) : null;
+        }
+
+        // ============ BATCH (북마클릿용) ============
+        // 북마클릿에서 호출할 전역 함수
+        window.mptBatchRegister = async function(goodsNos) {
+            let success = 0, skip = 0, fail = 0;
+            for (const gno of goodsNos) {
+                try {
+                    const { data: ex } = await supabase.from('product').select('id').eq('id', gno);
+                    if (ex && ex.length > 0) { skip++; continue; }
+
+                    const info = await fetchMusinsaGoods(gno);
+                    if (!info) { fail++; continue; }
+
+                    await supabase.from('product').upsert({
+                        id: gno, name: info.name, image_url: info.image_url,
+                        product_url: 'https://www.musinsa.com/products/' + gno,
+                        brand_name: info.brand_name, category: info.category,
+                        current_price: info.price, original_price: info.original_price,
+                        lowest_price: info.price, initial_price: info.price,
+                        is_sold_out: info.is_sold_out,
+                    });
+                    await supabase.from('price_history').insert({
+                        product_id: gno, price: info.price, original_price: info.original_price,
+                    });
+                    success++;
+                } catch (e) { fail++; }
+            }
+            await loadProducts();
+            return { success, skip, fail, total: goodsNos.length };
+        };
+
+        // ============ DELETE ============
+        async function deleteProduct(id) {
+            if (!confirm('삭제?')) return;
+            await supabase.from('price_history').delete().eq('product_id', id);
+            await supabase.from('product').delete().eq('id', id);
+            showToast('삭제됨');
+            await loadProducts();
+        }
+
+        // ============ CHART ============
+        async function showChart(productId, name) {
+            document.getElementById('chartModal').classList.add('active');
+            document.getElementById('chartTitle').textContent = decodeURIComponent(name);
+
+            const { data: history } = await supabase
+                .from('price_history')
+                .select('*')
+                .eq('product_id', productId)
+                .order('checked_at', { ascending: true });
+
+            if (chartInstance) chartInstance.destroy();
+            if (!history || history.length === 0) return;
+
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: history.map(h => {
+                        const d = new Date(h.checked_at);
+                        return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+                    }),
+                    datasets: [{
+                        label: '판매가',
+                        data: history.map(h => h.price),
+                        borderColor: '#000', backgroundColor: 'rgba(0,0,0,0.05)',
+                        fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#000'
+                    }, {
+                        label: '정가',
+                        data: history.map(h => h.original_price),
+                        borderColor: '#ddd', borderDash: [5, 5], fill: false, tension: 0.3, pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmt(c.parsed.y) + '원' } } },
+                    scales: { y: { ticks: { callback: v => fmt(v) + '원' } } }
+                }
+            });
+        }
+
+        function closeChart() { document.getElementById('chartModal').classList.remove('active'); }
+
+        // ============ BOOKMARKLET ============
+        function initBookmarklet() {
+            const pageUrl = window.location.origin + window.location.pathname;
+            const code = "javascript:void(function(){var p='" + pageUrl + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;var w=window.open(p);w.addEventListener('load',function(){w.mptBatchRegister(all).then(function(r){w.alert('Done! New:'+r.success+' Skip:'+r.skip+' Fail:'+r.fail)})})}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
+            document.getElementById('bookmarkletLink').href = code;
+        }
+
+        function toggleGuide() {
+            const el = document.getElementById('guideContent');
+            el.classList.toggle('show');
+        }
+
+        // ============ UTIL ============
+        function fmt(n) { return n ? n.toLocaleString('ko-KR') : '0'; }
+        function esc(s) { return s ? s.replace(/'/g, "\\'").replace(/"/g, '&quot;') : ''; }
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg; t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2500);
+        }
+
+        document.getElementById('urlInput').addEventListener('keydown', e => { if (e.key === 'Enter') registerProduct(); });
+        document.getElementById('chartModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeChart(); });
+
+        init();
+    </script>
+</body>
+</html>
