@@ -49,16 +49,20 @@
         .multi-select-dropdown {
             display: none; position: absolute; top: 100%; left: 0; z-index: 50;
             background: #fff; border: 1px solid #ddd; border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.12); max-height: 250px;
-            overflow-y: auto; min-width: 160px; margin-top: 4px; padding: 6px 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12); max-height: 300px;
+            overflow-y: auto; min-width: 320px; margin-top: 4px; padding: 6px 0;
         }
         .multi-select-dropdown.show { display: block; }
-        .multi-select-dropdown label {
-            display: flex; align-items: center; gap: 8px; padding: 6px 14px;
-            font-size: 13px; cursor: pointer; white-space: nowrap;
+        .multi-select-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 0;
         }
-        .multi-select-dropdown label:hover { background: #f5f5f5; }
-        .multi-select-dropdown input[type="checkbox"] { accent-color: #000; }
+        .multi-select-grid label {
+            display: flex; align-items: center; gap: 6px; padding: 7px 12px;
+            font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden;
+        }
+        .multi-select-grid label:hover { background: #f5f5f5; }
+        .multi-select-grid .filter-count { font-size: 11px; color: #aaa; margin-left: auto; }
+        .multi-select-dropdown input[type="checkbox"] { accent-color: #000; flex-shrink: 0; }
 
         /* 가격 필터 */
         .price-filter {
@@ -269,10 +273,18 @@
 
         function buildCheckboxDropdown(containerId, items, selectedSet, type) {
             const container = document.getElementById(containerId);
-            container.innerHTML = items.map(item => {
+            // 각 항목별 개수 계산
+            const countMap = {};
+            const field = type === 'cat' ? 'category' : 'brand_name';
+            allProducts.forEach(p => {
+                const val = p[field];
+                if (val) countMap[val] = (countMap[val] || 0) + 1;
+            });
+            container.innerHTML = '<div class="multi-select-grid">' + items.map(item => {
                 const checked = selectedSet.has(item) ? 'checked' : '';
-                return `<label><input type="checkbox" value="${esc(item)}" ${checked} onchange="onFilterCheck(this, '${type}')">${item}</label>`;
-            }).join('');
+                const cnt = countMap[item] || 0;
+                return `<label><input type="checkbox" value="${esc(item)}" ${checked} onchange="onFilterCheck(this, '${type}')">${item}<span class="filter-count">${cnt}</span></label>`;
+            }).join('') + '</div>';
         }
 
         function onFilterCheck(cb, type) {
