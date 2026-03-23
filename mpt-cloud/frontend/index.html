@@ -150,7 +150,14 @@
             <select id="brandFilter" onchange="renderProducts()">
                 <option value="">전체 브랜드</option>
             </select>
-            <button class="sort-btn" id="sortBtn" onclick="toggleSort()">할인 큰순 ↓</button>
+            <select id="sortSelect" onchange="changeSort(this.value)">
+                <option value="discount_desc">할인 큰순 ↓</option>
+                <option value="discount_asc">할인 작은순 ↑</option>
+                <option value="price_asc">가격 낮은순 ↑</option>
+                <option value="price_desc">가격 높은순 ↓</option>
+                <option value="date_desc">최근 등록순 ↓</option>
+                <option value="date_asc">오래된 등록순 ↑</option>
+            </select>
             <button id="soldoutBtn" onclick="toggleSoldout()">품절 숨기기</button>
             <button id="refreshBtn" onclick="refreshAll()">🔄 가격 업데이트</button>
             <span class="count" id="countLabel"></span>
@@ -239,6 +246,10 @@
                 list.sort((a, b) => a.current_price - b.current_price);
             } else if (sortMode === 'price_desc') {
                 list.sort((a, b) => b.current_price - a.current_price);
+            } else if (sortMode === 'date_desc') {
+                list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            } else if (sortMode === 'date_asc') {
+                list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
             }
 
             return list;
@@ -294,18 +305,8 @@
         }
 
         // ============ SORT ============
-        const sortModes = [
-            { key: 'discount_desc', label: '할인 큰순 ↓' },
-            { key: 'discount_asc', label: '할인 작은순 ↑' },
-            { key: 'price_asc', label: '가격 낮은순 ↑' },
-            { key: 'price_desc', label: '가격 높은순 ↓' },
-        ];
-        let sortIdx = 0;
-
-        function toggleSort() {
-            sortIdx = (sortIdx + 1) % sortModes.length;
-            sortMode = sortModes[sortIdx].key;
-            document.getElementById('sortBtn').textContent = sortModes[sortIdx].label;
+        function changeSort(val) {
+            sortMode = val;
             renderProducts();
         }
 
