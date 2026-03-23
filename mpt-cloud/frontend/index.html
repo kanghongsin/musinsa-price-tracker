@@ -67,6 +67,7 @@
         .product-card.sold-out { opacity: 0.55; }
         .product-card.sold-out img { filter: grayscale(0.8); }
         .product-info .lowest { font-size: 11px; color: #e44; margin-top: 2px; }
+        .product-info .reg-date { font-size: 10px; color: #bbb; margin-top: 2px; }
         .product-actions { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
         .btn-sm {
             padding: 5px 10px; background: none; border: 1px solid #ddd;
@@ -279,7 +280,9 @@
                             ${p.original_price > p.current_price ? `<span class="original-price">${fmt(p.original_price)}원</span>` : ''}
                             <span class="discount-badge ${badgeClass}">${badgeText}</span>
                         </div>
+                        ${p.initial_price && p.initial_price !== p.current_price ? `<div class="lowest">등록가 ${fmt(p.initial_price)}원</div>` : ''}
                         ${p.lowest_price < p.current_price ? `<div class="lowest">최저 ${fmt(p.lowest_price)}원</div>` : ''}
+                        <div class="reg-date">${p.created_at ? new Date(p.created_at).toLocaleDateString('ko-KR') : ''}</div>
                     </div>
                     <div class="product-actions" onclick="event.stopPropagation()">
                         <a class="btn-sm" href="${p.product_url}" target="_blank">무신사</a>
@@ -379,6 +382,7 @@
                 let thumb = g.thumbnailImageUrl || '';
                 if (thumb && !thumb.startsWith('http')) thumb = 'https://image.msscdn.net' + thumb;
 
+                const isSoldOut = g.goodsSaleType !== 'SALE' || !!g.isOutOfStock;
                 return {
                     name: headDesc + (g.goodsNm || ''),
                     image_url: thumb,
@@ -386,7 +390,7 @@
                     category: g.category ? g.category.categoryDepth1Name : '',
                     price: gp.salePrice || 0,
                     original_price: gp.normalPrice || 0,
-                    is_sold_out: !!g.isSoldOut,
+                    is_sold_out: isSoldOut,
                 };
             } catch (e) { return null; }
         }
