@@ -441,7 +441,7 @@
             document.getElementById('chartModal').classList.add('active');
             document.getElementById('chartTitle').textContent = decodeURIComponent(name);
 
-            const { data: history } = await supabase
+            const { data: history } = await sb
                 .from('price_history')
                 .select('*')
                 .eq('product_id', productId)
