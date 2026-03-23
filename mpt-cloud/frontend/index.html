@@ -152,6 +152,7 @@
             </select>
             <button class="sort-btn" id="sortBtn" onclick="toggleSort()">할인 큰순 ↓</button>
             <button id="soldoutBtn" onclick="toggleSoldout()">품절 숨기기</button>
+            <button id="refreshBtn" onclick="refreshAll()">🔄 가격 업데이트</button>
             <span class="count" id="countLabel"></span>
         </div>
 
@@ -430,6 +431,47 @@
             await loadProducts();
             return { success, skip, fail, total: goodsNos.length };
         };
+
+        // ============ REFRESH ALL ============
+        async function refreshAll() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            const total = allProducts.length;
+            let updated = 0, failed = 0;
+
+            for (let i = 0; i < allProducts.length; i++) {
+                const p = allProducts[i];
+                btn.textContent = `🔄 ${i + 1}/${total}`;
+                try {
+                    const info = await fetchMusinsaGoods(p.id);
+                    if (!info) { failed++; continue; }
+
+                    const newLowest = Math.min(p.lowest_price || info.price, info.price);
+                    await sb.from('product').update({
+                        current_price: info.price,
+                        original_price: info.original_price,
+                        lowest_price: newLowest,
+                        is_sold_out: info.is_sold_out,
+                        updated_at: new Date().toISOString(),
+                    }).eq('id', p.id);
+
+                    // 가격 변동 시 이력 추가
+                    if (info.price !== p.current_price) {
+                        await sb.from('price_history').insert({
+                            product_id: p.id,
+                            price: info.price,
+                            original_price: info.original_price,
+                        });
+                    }
+                    updated++;
+                } catch (e) { failed++; }
+            }
+
+            btn.textContent = '🔄 가격 업데이트';
+            btn.disabled = false;
+            showToast(`업데이트 완료! ${updated}개 성공, ${failed}개 실패`);
+            await loadProducts();
+        }
 
         // ============ DELETE ============
         async function deleteProduct(id) {
