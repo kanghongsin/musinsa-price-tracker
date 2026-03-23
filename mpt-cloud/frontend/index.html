@@ -482,7 +482,7 @@
         // ============ BOOKMARKLET ============
         function initBookmarklet() {
             const pageUrl = window.location.origin + window.location.pathname;
-            const code = "javascript:void(function(){var p='" + pageUrl + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;var w=window.open(p);var tries=0;var check=setInterval(function(){tries++;if(w.mptBatchRegister){clearInterval(check);w.mptBatchRegister(all).then(function(r){w.alert('Done! New:'+r.success+' Skip:'+r.skip+' Fail:'+r.fail)})}else if(tries>50){clearInterval(check);alert('Page load timeout')}},200)}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
+            const code = "javascript:void(function(){var p='" + pageUrl + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;window.open(p+'?import='+all.join(','))}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
             document.getElementById('bookmarkletLink').href = code;
         }
 
@@ -503,7 +503,24 @@
         document.getElementById('urlInput').addEventListener('keydown', e => { if (e.key === 'Enter') registerProduct(); });
         document.getElementById('chartModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeChart(); });
 
-        init();
+        // URL 파라미터로 일괄 등록 (북마클릿에서 리다이렉트)
+        async function checkImportParam() {
+            const params = new URLSearchParams(window.location.search);
+            const importList = params.get('import');
+            if (!importList) return;
+
+            // URL에서 파라미터 제거 (뒤로가기 시 재실행 방지)
+            window.history.replaceState({}, '', window.location.pathname);
+
+            const goodsNos = importList.split(',').map(n => parseInt(n.trim())).filter(n => n > 0);
+            if (!goodsNos.length) return;
+
+            showToast('Importing ' + goodsNos.length + ' items...');
+            const result = await window.mptBatchRegister(goodsNos);
+            showToast('Done! New: ' + result.success + ' / Skip: ' + result.skip + ' / Fail: ' + result.fail);
+        }
+
+        init().then(() => checkImportParam());
     </script>
 </body>
 </html>
