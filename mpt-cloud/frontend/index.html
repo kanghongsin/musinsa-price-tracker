@@ -25,9 +25,19 @@
         }
         .register-box button:disabled { background: #999; }
 
-        /* 필터/정렬 */
+        /* 검색 */
+        .search-box { margin-bottom: 12px; }
+        .search-box input {
+            width: 100%; padding: 9px 14px; border: 1px solid #ddd; border-radius: 8px;
+            font-size: 13px; outline: none;
+        }
+        .search-box input:focus { border-color: #000; }
+
+        /* 필터/정렬 - sticky */
         .filter-bar {
             display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+            position: sticky; top: 0; z-index: 40; background: #f5f5f5;
+            padding: 10px 0; border-bottom: 1px solid #eee;
         }
         .filter-bar select, .filter-bar button {
             padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;
@@ -36,6 +46,8 @@
         .filter-bar select:focus { border-color: #000; }
         .filter-bar .active { background: #000; color: #fff; border-color: #000; }
         .filter-bar .count { font-size: 13px; color: #888; margin-left: auto; }
+        .btn-reset { color: #e44 !important; border-color: #fcc !important; }
+        .btn-reset:hover { background: #fee !important; }
 
         /* 체크박스 드롭다운 */
         .multi-select { position: relative; display: inline-block; }
@@ -44,7 +56,7 @@
             font-size: 13px; background: #fff; cursor: pointer; color: #333;
             min-width: 110px; text-align: left; white-space: nowrap;
         }
-        .multi-select-btn::after { content: ' ▾'; color: #999; }
+        .multi-select-btn::after { content: ' \25BE'; color: #999; }
         .multi-select-btn.has-selection { border-color: #000; font-weight: 600; }
         .multi-select-dropdown {
             display: none; position: absolute; top: 100%; left: 0; z-index: 50;
@@ -83,7 +95,7 @@
         .product-card {
             display: flex; gap: 14px; background: #fff; border-radius: 12px;
             padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); cursor: pointer;
-            transition: box-shadow 0.2s; position: relative;
+            transition: box-shadow 0.2s, background 0.3s; position: relative;
         }
         .product-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .product-card img { width: 90px; height: 90px; object-fit: cover; border-radius: 8px; }
@@ -115,6 +127,33 @@
         }
         .btn-sm:hover { border-color: #000; color: #333; }
         .btn-del:hover { border-color: #e44; color: #e44; }
+
+        /* 가격 변동 하이라이트 */
+        .price-changed-down { animation: flashDown 2s ease; }
+        .price-changed-up { animation: flashUp 2s ease; }
+        @keyframes flashDown { 0%,20% { background: #fff0f0; } 100% { background: #fff; } }
+        @keyframes flashUp { 0%,20% { background: #f0f0ff; } 100% { background: #fff; } }
+        .change-indicator { font-size: 10px; font-weight: 700; margin-left: 4px; }
+        .change-indicator.down { color: #e33; }
+        .change-indicator.up { color: #66a; }
+
+        /* 선택 모드 */
+        .select-mode-bar {
+            display: none; gap: 8px; align-items: center; margin-bottom: 12px;
+            padding: 10px 14px; background: #fff; border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .select-mode-bar.show { display: flex; }
+        .select-mode-bar .sel-count { font-size: 13px; color: #333; font-weight: 600; }
+        .select-mode-bar button { padding: 6px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; cursor: pointer; background: #fff; }
+        .select-mode-bar .btn-del-bulk { color: #e44; border-color: #fcc; }
+        .select-mode-bar .btn-del-bulk:hover { background: #fee; }
+        .product-card .select-cb {
+            position: absolute; top: 10px; left: 10px; z-index: 5;
+            width: 18px; height: 18px; accent-color: #000; cursor: pointer;
+        }
+        .product-card .select-cb { display: none; }
+        .select-active .product-card .select-cb { display: block; }
 
         /* 북마클릿 */
         .bookmarklet-section {
@@ -148,6 +187,7 @@
         .empty-state { text-align: center; padding: 50px 20px; color: #999; font-size: 14px; }
         .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 200; display: none; }
         .toast.show { display: block; }
+        .toast .undo-btn { margin-left: 10px; color: #7bf; cursor: pointer; font-weight: 700; text-decoration: underline; border: none; background: none; font-size: 13px; }
 
         @media (max-width: 600px) {
             .product-card img { width: 70px; height: 70px; }
@@ -155,6 +195,7 @@
             .product-info .current-price { font-size: 15px; }
             .filter-bar { gap: 6px; }
             .filter-bar select, .filter-bar button { padding: 6px 10px; font-size: 12px; }
+            .multi-select-dropdown { min-width: 260px; }
         }
     </style>
 </head>
@@ -183,6 +224,11 @@
             </div>
         </div>
 
+        <!-- 검색 -->
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="상품명 또는 브랜드 검색..." oninput="renderProducts()">
+        </div>
+
         <div class="filter-bar">
             <div class="multi-select" id="categorySelect">
                 <button class="multi-select-btn" onclick="toggleDropdown('categorySelect')">전체 카테고리</button>
@@ -193,10 +239,10 @@
                 <div class="multi-select-dropdown" id="brandDropdown"></div>
             </div>
             <div class="price-filter">
-                <label><input type="checkbox" id="priceFilterOn" onchange="renderProducts()"> 가격</label>
-                <input type="number" id="priceMin" placeholder="0" onchange="renderProducts()">
+                <label><input type="checkbox" id="priceFilterOn" onchange="onFilterChange()"> 가격</label>
+                <input type="number" id="priceMin" placeholder="0" onchange="onFilterChange()">
                 <span>~</span>
-                <input type="number" id="priceMax" placeholder="∞" onchange="renderProducts()">
+                <input type="number" id="priceMax" placeholder="∞" onchange="onFilterChange()">
                 <span style="font-size:11px;color:#999">만원</span>
             </div>
             <select id="sortSelect" onchange="changeSort(this.value)">
@@ -208,8 +254,18 @@
                 <option value="date_asc">오래된 등록순 ↑</option>
             </select>
             <button id="soldoutBtn" onclick="toggleSoldout()">품절 숨기기</button>
-            <button id="refreshBtn" onclick="refreshAll()">🔄 가격 업데이트</button>
+            <button id="selectModeBtn" onclick="toggleSelectMode()">선택</button>
+            <button class="btn-reset" onclick="resetFilters()">초기화</button>
+            <button id="refreshBtn" onclick="refreshAll()">🔄 업데이트</button>
             <span class="count" id="countLabel"></span>
+        </div>
+
+        <!-- 선택 모드 바 -->
+        <div class="select-mode-bar" id="selectModeBar">
+            <span class="sel-count" id="selCount">0개 선택</span>
+            <button onclick="selectAll()">전체선택</button>
+            <button onclick="deselectAll()">선택해제</button>
+            <button class="btn-del-bulk" onclick="deleteSelected()">선택 삭제</button>
         </div>
 
         <div id="productList" class="product-list">
@@ -231,7 +287,6 @@
 
     <script>
         // ============ CONFIG ============
-        // Supabase 설정 (본인 값으로 교체)
         const SUPABASE_URL = 'https://nnfhxblnlcqqiyzlfaea.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uZmh4YmxubGNxcWl5emxmYWVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMDcwMjEsImV4cCI6MjA4OTc4MzAyMX0.qzb-ELFZzJiSoKlqGzs1RNebt7S1J0bsAW9gKbnJnVc';
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -243,11 +298,53 @@
         let selectedCats = new Set();
         let selectedBrands = new Set();
         let chartInstance = null;
+        let selectMode = false;
+        let selectedIds = new Set();
+        let priceChanges = {}; // id -> 'down' | 'up'
+        let undoData = null;
+        let undoTimer = null;
 
         // ============ INIT ============
         async function init() {
+            loadState();
             await loadProducts();
             initBookmarklet();
+        }
+
+        // ============ STATE 저장/복원 (localStorage) ============
+        function saveState() {
+            const state = {
+                sortMode,
+                hideSoldout,
+                selectedCats: [...selectedCats],
+                selectedBrands: [...selectedBrands],
+                priceFilterOn: document.getElementById('priceFilterOn').checked,
+                priceMin: document.getElementById('priceMin').value,
+                priceMax: document.getElementById('priceMax').value,
+                searchQuery: document.getElementById('searchInput').value,
+            };
+            localStorage.setItem('mpt_filter_state', JSON.stringify(state));
+        }
+
+        function loadState() {
+            try {
+                const s = JSON.parse(localStorage.getItem('mpt_filter_state'));
+                if (!s) return;
+                sortMode = s.sortMode || 'discount_desc';
+                hideSoldout = !!s.hideSoldout;
+                selectedCats = new Set(s.selectedCats || []);
+                selectedBrands = new Set(s.selectedBrands || []);
+                document.getElementById('sortSelect').value = sortMode;
+                document.getElementById('priceFilterOn').checked = !!s.priceFilterOn;
+                document.getElementById('priceMin').value = s.priceMin || '';
+                document.getElementById('priceMax').value = s.priceMax || '';
+                document.getElementById('searchInput').value = s.searchQuery || '';
+                if (hideSoldout) {
+                    const btn = document.getElementById('soldoutBtn');
+                    btn.textContent = '품절 보기';
+                    btn.classList.add('active');
+                }
+            } catch (e) {}
         }
 
         // ============ DATA ============
@@ -273,7 +370,6 @@
 
         function buildCheckboxDropdown(containerId, items, selectedSet, type) {
             const container = document.getElementById(containerId);
-            // 각 항목별 개수 계산
             const countMap = {};
             const field = type === 'cat' ? 'category' : 'brand_name';
             allProducts.forEach(p => {
@@ -292,6 +388,11 @@
             if (cb.checked) set.add(cb.value);
             else set.delete(cb.value);
             updateFilterBtnText();
+            onFilterChange();
+        }
+
+        function onFilterChange() {
+            saveState();
             renderProducts();
         }
 
@@ -318,27 +419,33 @@
 
         function toggleDropdown(selectId) {
             const dropdown = document.querySelector(`#${selectId} .multi-select-dropdown`);
-            // 다른 드롭다운 닫기
             document.querySelectorAll('.multi-select-dropdown.show').forEach(d => {
                 if (d !== dropdown) d.classList.remove('show');
             });
             dropdown.classList.toggle('show');
         }
 
-        // 바깥 클릭 시 드롭다운 닫기
         document.addEventListener('click', e => {
             if (!e.target.closest('.multi-select')) {
                 document.querySelectorAll('.multi-select-dropdown.show').forEach(d => d.classList.remove('show'));
             }
         });
 
+        // ============ FILTER ============
         function getFiltered() {
+            const searchQuery = document.getElementById('searchInput').value.trim().toLowerCase();
             let list = allProducts;
+
+            if (searchQuery) {
+                list = list.filter(p =>
+                    (p.name && p.name.toLowerCase().includes(searchQuery)) ||
+                    (p.brand_name && p.brand_name.toLowerCase().includes(searchQuery))
+                );
+            }
             if (hideSoldout) list = list.filter(p => !p.is_sold_out);
             if (selectedCats.size > 0) list = list.filter(p => selectedCats.has(p.category));
             if (selectedBrands.size > 0) list = list.filter(p => selectedBrands.has(p.brand_name));
 
-            // 가격 필터
             if (document.getElementById('priceFilterOn').checked) {
                 const minVal = document.getElementById('priceMin').value;
                 const maxVal = document.getElementById('priceMax').value;
@@ -347,21 +454,13 @@
                 list = list.filter(p => p.current_price >= min && p.current_price <= max);
             }
 
-            // 정렬
             list = [...list];
-            if (sortMode === 'discount_desc') {
-                list.sort((a, b) => getDiscountRate(b) - getDiscountRate(a));
-            } else if (sortMode === 'discount_asc') {
-                list.sort((a, b) => getDiscountRate(a) - getDiscountRate(b));
-            } else if (sortMode === 'price_asc') {
-                list.sort((a, b) => a.current_price - b.current_price);
-            } else if (sortMode === 'price_desc') {
-                list.sort((a, b) => b.current_price - a.current_price);
-            } else if (sortMode === 'date_desc') {
-                list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            } else if (sortMode === 'date_asc') {
-                list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-            }
+            if (sortMode === 'discount_desc') list.sort((a, b) => getDiscountRate(b) - getDiscountRate(a));
+            else if (sortMode === 'discount_asc') list.sort((a, b) => getDiscountRate(a) - getDiscountRate(b));
+            else if (sortMode === 'price_asc') list.sort((a, b) => a.current_price - b.current_price);
+            else if (sortMode === 'price_desc') list.sort((a, b) => b.current_price - a.current_price);
+            else if (sortMode === 'date_desc') list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            else if (sortMode === 'date_asc') list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
             return list;
         }
@@ -369,6 +468,32 @@
         function getDiscountRate(p) {
             if (!p.initial_price || p.initial_price === 0) return 0;
             return ((p.initial_price - p.current_price) / p.initial_price) * 100;
+        }
+
+        // ============ RESET FILTERS ============
+        function resetFilters() {
+            selectedCats.clear();
+            selectedBrands.clear();
+            hideSoldout = false;
+            sortMode = 'discount_desc';
+            selectMode = false;
+            selectedIds.clear();
+
+            document.getElementById('sortSelect').value = 'discount_desc';
+            document.getElementById('priceFilterOn').checked = false;
+            document.getElementById('priceMin').value = '';
+            document.getElementById('priceMax').value = '';
+            document.getElementById('searchInput').value = '';
+            document.getElementById('soldoutBtn').textContent = '품절 숨기기';
+            document.getElementById('soldoutBtn').classList.remove('active');
+            document.getElementById('selectModeBtn').classList.remove('active');
+            document.getElementById('selectModeBar').classList.remove('show');
+            document.getElementById('productList').classList.remove('select-active');
+
+            updateFilters();
+            saveState();
+            renderProducts();
+            showToast('필터 초기화됨');
         }
 
         // ============ RENDER ============
@@ -385,11 +510,19 @@
             container.innerHTML = list.map(p => {
                 const dr = getDiscountRate(p);
                 let badgeClass = 'badge-same', badgeText = '-';
-                if (dr > 0) { badgeClass = 'badge-down'; badgeText = '↓' + dr.toFixed(0) + '%'; }
-                else if (dr < 0) { badgeClass = 'badge-up'; badgeText = '↑' + Math.abs(dr).toFixed(0) + '%'; }
+                if (dr > 0) { badgeClass = 'badge-down'; badgeText = '\u2193' + dr.toFixed(0) + '%'; }
+                else if (dr < 0) { badgeClass = 'badge-up'; badgeText = '\u2191' + Math.abs(dr).toFixed(0) + '%'; }
+
+                const change = priceChanges[p.id];
+                const changeClass = change === 'down' ? 'price-changed-down' : change === 'up' ? 'price-changed-up' : '';
+                const changeIndicator = change === 'down' ? '<span class="change-indicator down">NEW \u2193</span>' :
+                                        change === 'up' ? '<span class="change-indicator up">NEW \u2191</span>' : '';
+
+                const checked = selectedIds.has(p.id) ? 'checked' : '';
 
                 return `
-                <div class="product-card${p.is_sold_out ? ' sold-out' : ''}" onclick="showChart(${p.id}, '${esc(p.name)}')">
+                <div class="product-card${p.is_sold_out ? ' sold-out' : ''} ${changeClass}" onclick="onCardClick(event, ${p.id}, '${esc(p.name)}')">
+                    <input type="checkbox" class="select-cb" ${checked} onclick="event.stopPropagation(); toggleSelect(${p.id})" />
                     <img src="${p.image_url || ''}" alt="" onerror="this.src='https://placehold.co/90x90?text=No+Img'">
                     <div class="product-info">
                         <div>
@@ -402,6 +535,7 @@
                             <span class="current-price">${fmt(p.current_price)}원</span>
                             ${p.original_price > p.current_price ? `<span class="original-price">${fmt(p.original_price)}원</span>` : ''}
                             <span class="discount-badge ${badgeClass}">${badgeText}</span>
+                            ${changeIndicator}
                         </div>
                         ${p.initial_price && p.initial_price !== p.current_price ? `<div class="lowest">등록가 ${fmt(p.initial_price)}원</div>` : ''}
                         ${p.lowest_price < p.current_price ? `<div class="lowest">최저 ${fmt(p.lowest_price)}원</div>` : ''}
@@ -415,9 +549,19 @@
             }).join('');
         }
 
+        function onCardClick(event, id, name) {
+            if (selectMode) {
+                toggleSelect(id);
+                renderProducts();
+            } else {
+                showChart(id, name);
+            }
+        }
+
         // ============ SORT ============
         function changeSort(val) {
             sortMode = val;
+            saveState();
             renderProducts();
         }
 
@@ -426,7 +570,71 @@
             const btn = document.getElementById('soldoutBtn');
             btn.textContent = hideSoldout ? '품절 보기' : '품절 숨기기';
             btn.classList.toggle('active', hideSoldout);
+            saveState();
             renderProducts();
+        }
+
+        // ============ SELECT MODE ============
+        function toggleSelectMode() {
+            selectMode = !selectMode;
+            selectedIds.clear();
+            document.getElementById('selectModeBtn').classList.toggle('active', selectMode);
+            document.getElementById('selectModeBar').classList.toggle('show', selectMode);
+            document.getElementById('productList').classList.toggle('select-active', selectMode);
+            updateSelCount();
+            renderProducts();
+        }
+
+        function toggleSelect(id) {
+            if (selectedIds.has(id)) selectedIds.delete(id);
+            else selectedIds.add(id);
+            updateSelCount();
+            // checkbox 상태 업데이트
+            const cbs = document.querySelectorAll('.select-cb');
+            cbs.forEach(cb => {
+                const cardEl = cb.closest('.product-card');
+                if (cardEl) {
+                    const onclick = cardEl.getAttribute('onclick') || '';
+                    const m = onclick.match(/onCardClick\(event,\s*(\d+)/);
+                    if (m && parseInt(m[1]) === id) cb.checked = selectedIds.has(id);
+                }
+            });
+        }
+
+        function selectAll() {
+            getFiltered().forEach(p => selectedIds.add(p.id));
+            updateSelCount();
+            renderProducts();
+        }
+
+        function deselectAll() {
+            selectedIds.clear();
+            updateSelCount();
+            renderProducts();
+        }
+
+        function updateSelCount() {
+            document.getElementById('selCount').textContent = selectedIds.size + '개 선택';
+        }
+
+        async function deleteSelected() {
+            if (selectedIds.size === 0) { showToast('선택된 상품이 없습니다'); return; }
+            if (!confirm(selectedIds.size + '개 상품을 삭제하시겠습니까?')) return;
+
+            // undo 데이터 저장
+            const toDelete = allProducts.filter(p => selectedIds.has(p.id));
+            undoData = { type: 'bulk', products: toDelete };
+
+            for (const id of selectedIds) {
+                await sb.from('price_history').delete().eq('product_id', id);
+                await sb.from('product').delete().eq('id', id);
+            }
+
+            const count = selectedIds.size;
+            selectedIds.clear();
+            updateSelCount();
+            await loadProducts();
+            showToastWithUndo(count + '개 삭제됨');
         }
 
         // ============ REGISTER ============
@@ -442,36 +650,27 @@
             btn.disabled = true; btn.textContent = '...';
 
             try {
-                // 이미 등록?
                 const { data: existing } = await sb.from('product').select('id').eq('id', goodsNo);
                 if (existing && existing.length > 0) {
                     showToast('이미 등록된 상품입니다');
                     return;
                 }
 
-                // 무신사 API로 정보 조회
                 const info = await fetchMusinsaGoods(goodsNo);
                 if (!info) { showToast('상품 정보를 가져올 수 없습니다'); return; }
 
                 const product = {
-                    id: goodsNo,
-                    name: info.name,
-                    image_url: info.image_url,
+                    id: goodsNo, name: info.name, image_url: info.image_url,
                     product_url: 'https://www.musinsa.com/products/' + goodsNo,
-                    brand_name: info.brand_name,
-                    category: info.category,
-                    current_price: info.price,
-                    original_price: info.original_price,
-                    lowest_price: info.price,
-                    initial_price: info.price,
+                    brand_name: info.brand_name, category: info.category,
+                    current_price: info.price, original_price: info.original_price,
+                    lowest_price: info.price, initial_price: info.price,
                     is_sold_out: info.is_sold_out,
                 };
 
                 await sb.from('product').upsert(product);
                 await sb.from('price_history').insert({
-                    product_id: goodsNo,
-                    price: info.price,
-                    original_price: info.original_price,
+                    product_id: goodsNo, price: info.price, original_price: info.original_price,
                 });
 
                 input.value = '';
@@ -514,18 +713,15 @@
             return m ? parseInt(m[1]) : null;
         }
 
-        // ============ BATCH (북마클릿용) ============
-        // 북마클릿에서 호출할 전역 함수
+        // ============ BATCH ============
         window.mptBatchRegister = async function(goodsNos) {
             let success = 0, skip = 0, fail = 0;
             for (const gno of goodsNos) {
                 try {
                     const { data: ex } = await sb.from('product').select('id').eq('id', gno);
                     if (ex && ex.length > 0) { skip++; continue; }
-
                     const info = await fetchMusinsaGoods(gno);
                     if (!info) { fail++; continue; }
-
                     await sb.from('product').upsert({
                         id: gno, name: info.name, image_url: info.image_url,
                         product_url: 'https://www.musinsa.com/products/' + gno,
@@ -544,12 +740,16 @@
             return { success, skip, fail, total: goodsNos.length };
         };
 
-        // ============ REFRESH ALL ============
+        // ============ REFRESH ALL (가격 변동 하이라이트) ============
         async function refreshAll() {
             const btn = document.getElementById('refreshBtn');
             btn.disabled = true;
             const total = allProducts.length;
             let updated = 0, failed = 0;
+            priceChanges = {};
+
+            const oldPrices = {};
+            allProducts.forEach(p => { oldPrices[p.id] = p.current_price; });
 
             for (let i = 0; i < allProducts.length; i++) {
                 const p = allProducts[i];
@@ -560,38 +760,71 @@
 
                     const newLowest = Math.min(p.lowest_price || info.price, info.price);
                     await sb.from('product').update({
-                        current_price: info.price,
-                        original_price: info.original_price,
-                        lowest_price: newLowest,
-                        is_sold_out: info.is_sold_out,
+                        current_price: info.price, original_price: info.original_price,
+                        lowest_price: newLowest, is_sold_out: info.is_sold_out,
                         updated_at: new Date().toISOString(),
                     }).eq('id', p.id);
 
-                    // 가격 변동 시 이력 추가
                     if (info.price !== p.current_price) {
                         await sb.from('price_history').insert({
-                            product_id: p.id,
-                            price: info.price,
-                            original_price: info.original_price,
+                            product_id: p.id, price: info.price, original_price: info.original_price,
                         });
+                        priceChanges[p.id] = info.price < p.current_price ? 'down' : 'up';
                     }
                     updated++;
                 } catch (e) { failed++; }
             }
 
-            btn.textContent = '🔄 가격 업데이트';
+            btn.textContent = '🔄 업데이트';
             btn.disabled = false;
-            showToast(`업데이트 완료! ${updated}개 성공, ${failed}개 실패`);
+
+            const downCount = Object.values(priceChanges).filter(v => v === 'down').length;
+            const upCount = Object.values(priceChanges).filter(v => v === 'up').length;
+            let msg = `업데이트 완료! ${updated}개 확인`;
+            if (downCount > 0) msg += `, ${downCount}개 인하`;
+            if (upCount > 0) msg += `, ${upCount}개 인상`;
+            showToast(msg);
+
             await loadProducts();
+
+            // 5초 후 하이라이트 제거
+            setTimeout(() => { priceChanges = {}; renderProducts(); }, 5000);
         }
 
-        // ============ DELETE ============
+        // ============ DELETE (undo 지원) ============
         async function deleteProduct(id) {
-            if (!confirm('삭제?')) return;
+            // undo 데이터 저장
+            const product = allProducts.find(p => p.id === id);
+            if (!product) return;
+
+            const { data: history } = await sb.from('price_history').select('*').eq('product_id', id);
+            undoData = { type: 'single', product, history: history || [] };
+
             await sb.from('price_history').delete().eq('product_id', id);
             await sb.from('product').delete().eq('id', id);
-            showToast('삭제됨');
             await loadProducts();
+            showToastWithUndo('삭제됨');
+        }
+
+        async function undoDelete() {
+            if (!undoData) return;
+            try {
+                if (undoData.type === 'single') {
+                    await sb.from('product').upsert(undoData.product);
+                    if (undoData.history.length > 0) {
+                        await sb.from('price_history').upsert(undoData.history);
+                    }
+                } else if (undoData.type === 'bulk') {
+                    for (const p of undoData.products) {
+                        await sb.from('product').upsert(p);
+                    }
+                }
+                undoData = null;
+                showToast('복원됨!');
+                await loadProducts();
+            } catch (e) {
+                showToast('복원 실패: ' + e.message);
+            }
         }
 
         // ============ CHART ============
@@ -600,8 +833,7 @@
             document.getElementById('chartTitle').textContent = decodeURIComponent(name);
 
             const { data: history } = await sb
-                .from('price_history')
-                .select('*')
+                .from('price_history').select('*')
                 .eq('product_id', productId)
                 .order('checked_at', { ascending: true });
 
@@ -645,34 +877,41 @@
         }
 
         function toggleGuide() {
-            const el = document.getElementById('guideContent');
-            el.classList.toggle('show');
+            document.getElementById('guideContent').classList.toggle('show');
         }
 
         // ============ UTIL ============
         function fmt(n) { return n ? n.toLocaleString('ko-KR') : '0'; }
         function esc(s) { return s ? s.replace(/'/g, "\\'").replace(/"/g, '&quot;') : ''; }
+
         function showToast(msg) {
             const t = document.getElementById('toast');
-            t.textContent = msg; t.classList.add('show');
-            setTimeout(() => t.classList.remove('show'), 2500);
+            t.innerHTML = msg;
+            t.classList.add('show');
+            if (undoTimer) clearTimeout(undoTimer);
+            undoTimer = setTimeout(() => { t.classList.remove('show'); undoData = null; }, 3000);
+        }
+
+        function showToastWithUndo(msg) {
+            const t = document.getElementById('toast');
+            t.innerHTML = msg + '<button class="undo-btn" onclick="undoDelete()">되돌리기</button>';
+            t.classList.add('show');
+            if (undoTimer) clearTimeout(undoTimer);
+            undoTimer = setTimeout(() => { t.classList.remove('show'); undoData = null; }, 6000);
         }
 
         document.getElementById('urlInput').addEventListener('keydown', e => { if (e.key === 'Enter') registerProduct(); });
+        document.getElementById('searchInput').addEventListener('input', () => saveState());
         document.getElementById('chartModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeChart(); });
 
-        // URL 파라미터로 일괄 등록 (북마클릿에서 리다이렉트)
+        // URL 파라미터로 일괄 등록
         async function checkImportParam() {
             const params = new URLSearchParams(window.location.search);
             const importList = params.get('import');
             if (!importList) return;
-
-            // URL에서 파라미터 제거 (뒤로가기 시 재실행 방지)
             window.history.replaceState({}, '', window.location.pathname);
-
             const goodsNos = importList.split(',').map(n => parseInt(n.trim())).filter(n => n > 0);
             if (!goodsNos.length) return;
-
             showToast('Importing ' + goodsNos.length + ' items...');
             const result = await window.mptBatchRegister(goodsNos);
             showToast('Done! New: ' + result.success + ' / Skip: ' + result.skip + ' / Fail: ' + result.fail);
