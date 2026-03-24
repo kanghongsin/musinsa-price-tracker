@@ -116,6 +116,8 @@
         .badge-up { background: #eef; color: #66a; }
         .badge-same { background: #f5f5f5; color: #999; }
         .badge-soldout { background: #f0f0f0; color: #999; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+        .badge-soon-oos { background: #fff3e0; color: #e65100; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+        .review-info { font-size: 11px; color: #888; margin-top: 2px; }
         .product-card.sold-out { opacity: 0.55; }
         .product-card.sold-out img { filter: grayscale(0.8); }
         .product-info .lowest { font-size: 11px; color: #e44; margin-top: 2px; }
@@ -529,6 +531,7 @@
                             <span class="brand">${p.brand_name || ''}</span>
                             ${p.category ? `<span class="category-tag">${p.category}</span>` : ''}
                             ${p.is_sold_out ? '<span class="badge-soldout">품절</span>' : ''}
+                            ${!p.is_sold_out && p.is_soon_out_of_stock ? '<span class="badge-soon-oos">품절임박</span>' : ''}
                         </div>
                         <div class="name" title="${esc(p.name)}">${p.name}</div>
                         <div class="price-row">
@@ -539,6 +542,7 @@
                         </div>
                         ${p.initial_price && p.initial_price !== p.current_price ? `<div class="lowest">등록가 ${fmt(p.initial_price)}원</div>` : ''}
                         ${p.lowest_price < p.current_price ? `<div class="lowest">최저 ${fmt(p.lowest_price)}원</div>` : ''}
+                        ${p.review_count > 0 ? `<div class="review-info">⭐ ${p.review_score || 0} (${p.review_count})</div>` : ''}
                         <div class="reg-date">${p.created_at ? new Date(p.created_at).toLocaleDateString('ko-KR') : ''}</div>
                     </div>
                     <div class="product-actions" onclick="event.stopPropagation()">
@@ -666,6 +670,8 @@
                     current_price: info.price, original_price: info.original_price,
                     lowest_price: info.price, initial_price: info.price,
                     is_sold_out: info.is_sold_out,
+                    is_soon_out_of_stock: info.is_soon_out_of_stock,
+                    review_count: info.review_count, review_score: info.review_score,
                 };
 
                 await sb.from('product').upsert(product);
@@ -697,6 +703,7 @@
                 const isSoldOut = g.goodsSaleType !== 'SALE' || !!g.isOutOfStock;
                 // 쿠폰 적용가가 있으면 쿠폰가 사용, 없으면 세일가
                 const bestPrice = (gp.couponPrice && gp.couponPrice > 0) ? gp.couponPrice : (gp.salePrice || 0);
+                const review = g.goodsReview || {};
                 return {
                     name: headDesc + (g.goodsNm || ''),
                     image_url: thumb,
@@ -705,6 +712,9 @@
                     price: bestPrice,
                     original_price: gp.normalPrice || 0,
                     is_sold_out: isSoldOut,
+                    is_soon_out_of_stock: !!g.isSoonOutOfStock,
+                    review_count: review.totalCount || 0,
+                    review_score: review.satisfactionScore || 0,
                 };
             } catch (e) { return null; }
         }
@@ -764,6 +774,8 @@
                     await sb.from('product').update({
                         current_price: info.price, original_price: info.original_price,
                         lowest_price: newLowest, is_sold_out: info.is_sold_out,
+                        is_soon_out_of_stock: info.is_soon_out_of_stock,
+                        review_count: info.review_count, review_score: info.review_score,
                         updated_at: new Date().toISOString(),
                     }).eq('id', p.id);
 

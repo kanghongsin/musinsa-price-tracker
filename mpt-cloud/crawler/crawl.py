@@ -60,10 +60,14 @@ def fetch_goods(goods_no):
         sale = gp.get("salePrice", 0)
         best_price = coupon if coupon and coupon > 0 else sale
         is_sold_out = g.get("goodsSaleType") != "SALE" or bool(g.get("isOutOfStock", False))
+        review = g.get("goodsReview", {})
         return {
             "price": best_price,
             "original_price": gp.get("normalPrice", 0),
             "is_sold_out": is_sold_out,
+            "is_soon_out_of_stock": bool(g.get("isSoonOutOfStock", False)),
+            "review_count": review.get("totalCount", 0),
+            "review_score": review.get("satisfactionScore", 0),
         }
     except Exception as e:
         print(f"  Error fetching {goods_no}: {e}")
@@ -120,6 +124,9 @@ def main():
             "original_price": info["original_price"],
             "lowest_price": new_lowest,
             "is_sold_out": info["is_sold_out"],
+            "is_soon_out_of_stock": info["is_soon_out_of_stock"],
+            "review_count": info["review_count"],
+            "review_score": info["review_score"],
             "updated_at": now,
         })
 

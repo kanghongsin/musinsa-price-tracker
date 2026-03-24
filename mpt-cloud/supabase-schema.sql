@@ -13,6 +13,9 @@ CREATE TABLE product (
     lowest_price INTEGER,
     initial_price INTEGER,               -- 등록 시점 가격 (할인율 계산용)
     is_sold_out BOOLEAN DEFAULT FALSE,   -- 품절 여부
+    is_soon_out_of_stock BOOLEAN DEFAULT FALSE, -- 품절 임박
+    review_count INTEGER DEFAULT 0,
+    review_score NUMERIC(2,1) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
