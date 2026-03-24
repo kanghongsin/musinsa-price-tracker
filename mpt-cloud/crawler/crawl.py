@@ -54,10 +54,14 @@ def fetch_goods(goods_no):
             return None
         g = d["data"]
         gp = g.get("goodsPrice", {})
+        coupon = gp.get("couponPrice", 0)
+        sale = gp.get("salePrice", 0)
+        best_price = coupon if coupon and coupon > 0 else sale
+        is_sold_out = g.get("goodsSaleType") != "SALE" or bool(g.get("isOutOfStock", False))
         return {
-            "price": gp.get("salePrice", 0),
+            "price": best_price,
             "original_price": gp.get("normalPrice", 0),
-            "is_sold_out": bool(g.get("isSoldOut", False)),
+            "is_sold_out": is_sold_out,
         }
     except Exception as e:
         print(f"  Error fetching {goods_no}: {e}")
