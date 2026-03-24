@@ -69,27 +69,33 @@ def fetch_goods(goods_no):
 
 
 def main():
-    products = supabase_get("product", "select=id,lowest_price")
+    products = supabase_get("product", "select=id,current_price,lowest_price")
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}] Checking {len(products)} products...")
 
     now = datetime.now(timezone.utc).isoformat()
     updated = 0
+    changed = 0
 
     for p in products:
         goods_no = p["id"]
+        old_price = p.get("current_price") or 0
         info = fetch_goods(goods_no)
         if not info:
             continue
 
-        # 가격 이력 추가
-        supabase_post("price_history", {
-            "product_id": goods_no,
-            "price": info["price"],
-            "original_price": info["original_price"],
-            "checked_at": now,
-        })
+        price_changed = info["price"] != old_price
 
-        # 상품 정보 업데이트
+        # 가격 변동 시에만 이력 추가
+        if price_changed:
+            supabase_post("price_history", {
+                "product_id": goods_no,
+                "price": info["price"],
+                "original_price": info["original_price"],
+                "checked_at": now,
+            })
+            changed += 1
+
+        # 상품 정보 업데이트 (updated_at은 항상 갱신)
         new_lowest = min(p.get("lowest_price") or info["price"], info["price"])
         supabase_patch("product", "id", goods_no, {
             "current_price": info["price"],
@@ -100,10 +106,14 @@ def main():
         })
 
         status = " [SOLD OUT]" if info["is_sold_out"] else ""
-        print(f"  {goods_no}: {info['price']}원{status}")
+        change = ""
+        if price_changed:
+            diff = info["price"] - old_price
+            change = f" ({'+' if diff > 0 else ''}{diff:,})"
+        print(f"  {goods_no}: {info['price']:,}원{change}{status}")
         updated += 1
 
-    print(f"Done! Updated {updated}/{len(products)} products.")
+    print(f"Done! {updated} checked, {changed} price changed.")
 
 
 if __name__ == "__main__":
