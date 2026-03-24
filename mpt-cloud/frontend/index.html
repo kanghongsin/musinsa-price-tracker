@@ -695,12 +695,14 @@
                 if (thumb && !thumb.startsWith('http')) thumb = 'https://image.msscdn.net' + thumb;
 
                 const isSoldOut = g.goodsSaleType !== 'SALE' || !!g.isOutOfStock;
+                // 쿠폰 적용가가 있으면 쿠폰가 사용, 없으면 세일가
+                const bestPrice = (gp.couponPrice && gp.couponPrice > 0) ? gp.couponPrice : (gp.salePrice || 0);
                 return {
                     name: headDesc + (g.goodsNm || ''),
                     image_url: thumb,
                     brand_name: g.brandInfo ? g.brandInfo.brandName : '',
                     category: g.category ? g.category.categoryDepth1Name : '',
-                    price: gp.salePrice || 0,
+                    price: bestPrice,
                     original_price: gp.normalPrice || 0,
                     is_sold_out: isSoldOut,
                 };
