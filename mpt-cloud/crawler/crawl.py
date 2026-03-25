@@ -119,7 +119,7 @@ def main():
 
         # 상품 정보 업데이트 (updated_at은 항상 갱신)
         new_lowest = min(old_lowest or info["price"], info["price"])
-        supabase_patch("product", "id", goods_no, {
+        update_data = {
             "current_price": info["price"],
             "original_price": info["original_price"],
             "lowest_price": new_lowest,
@@ -128,7 +128,10 @@ def main():
             "review_count": info["review_count"],
             "review_score": info["review_score"],
             "updated_at": now,
-        })
+        }
+        if price_changed:
+            update_data["previous_price"] = old_price
+        supabase_patch("product", "id", goods_no, update_data)
 
         # 가격 변동 시 알림 데이터 수집
         if price_changed and old_price > 0:

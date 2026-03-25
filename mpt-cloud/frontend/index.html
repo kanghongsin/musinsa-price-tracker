@@ -468,8 +468,9 @@
         }
 
         function getDiscountRate(p) {
-            if (!p.initial_price || p.initial_price === 0) return 0;
-            return ((p.initial_price - p.current_price) / p.initial_price) * 100;
+            const prev = p.previous_price || p.initial_price;
+            if (!prev || prev === 0 || prev === p.current_price) return 0;
+            return ((prev - p.current_price) / prev) * 100;
         }
 
         // ============ RESET FILTERS ============
@@ -511,7 +512,7 @@
 
             container.innerHTML = list.map(p => {
                 const dr = getDiscountRate(p);
-                let badgeClass = 'badge-same', badgeText = '-';
+                let badgeClass = 'badge-same', badgeText = '';
                 if (dr > 0) { badgeClass = 'badge-down'; badgeText = '\u2193' + dr.toFixed(0) + '%'; }
                 else if (dr < 0) { badgeClass = 'badge-up'; badgeText = '\u2191' + Math.abs(dr).toFixed(0) + '%'; }
 
@@ -537,7 +538,8 @@
                         <div class="price-row">
                             <span class="current-price">${fmt(p.current_price)}원</span>
                             ${p.original_price > p.current_price ? `<span class="original-price">${fmt(p.original_price)}원</span>` : ''}
-                            <span class="discount-badge ${badgeClass}">${badgeText}</span>
+                            ${p.original_price > p.current_price ? `<span class="discount-badge badge-down">${Math.round((1 - p.current_price / p.original_price) * 100)}%</span>` : ''}
+                            ${dr !== 0 ? `<span class="discount-badge ${badgeClass}">${badgeText}</span>` : ''}
                             ${changeIndicator}
                         </div>
                         ${p.initial_price && p.initial_price !== p.current_price ? `<div class="lowest">등록가 ${fmt(p.initial_price)}원</div>` : ''}
@@ -771,15 +773,18 @@
                     if (!info) { failed++; continue; }
 
                     const newLowest = Math.min(p.lowest_price || info.price, info.price);
-                    await sb.from('product').update({
+                    const priceChanged = info.price !== p.current_price;
+                    const updateData = {
                         current_price: info.price, original_price: info.original_price,
                         lowest_price: newLowest, is_sold_out: info.is_sold_out,
                         is_soon_out_of_stock: info.is_soon_out_of_stock,
                         review_count: info.review_count, review_score: info.review_score,
                         updated_at: new Date().toISOString(),
-                    }).eq('id', p.id);
+                    };
+                    if (priceChanged) updateData.previous_price = p.current_price;
+                    await sb.from('product').update(updateData).eq('id', p.id);
 
-                    if (info.price !== p.current_price) {
+                    if (priceChanged) {
                         await sb.from('price_history').insert({
                             product_id: p.id, price: info.price, original_price: info.original_price,
                         });
@@ -886,7 +891,7 @@
         // ============ BOOKMARKLET ============
         function initBookmarklet() {
             const pageUrl = window.location.origin + window.location.pathname;
-            const code = "javascript:void(function(){var p='" + pageUrl + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;window.open(p+'?import='+all.join(','))}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
+            const code = "javascript:void(function(){var p='" + pageUrl + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;window.open(p+'?import='+all.join(',')+'&sync=1')}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
             document.getElementById('bookmarkletLink').href = code;
         }
 
@@ -922,13 +927,29 @@
         async function checkImportParam() {
             const params = new URLSearchParams(window.location.search);
             const importList = params.get('import');
+            const shouldSync = params.get('sync') === '1';
             if (!importList) return;
             window.history.replaceState({}, '', window.location.pathname);
             const goodsNos = importList.split(',').map(n => parseInt(n.trim())).filter(n => n > 0);
             if (!goodsNos.length) return;
             showToast('Importing ' + goodsNos.length + ' items...');
             const result = await window.mptBatchRegister(goodsNos);
-            showToast('Done! New: ' + result.success + ' / Skip: ' + result.skip + ' / Fail: ' + result.fail);
+            let msg = 'Done! New: ' + result.success + ' / Skip: ' + result.skip + ' / Fail: ' + result.fail;
+
+            // 좋아요 해제된 상품 자동 정리
+            if (shouldSync) {
+                const goodsNoSet = new Set(goodsNos);
+                const toRemove = allProducts.filter(p => !goodsNoSet.has(p.id));
+                if (toRemove.length > 0) {
+                    for (const p of toRemove) {
+                        await sb.from('price_history').delete().eq('product_id', p.id);
+                        await sb.from('product').delete().eq('id', p.id);
+                    }
+                    msg += ' / 좋아요 해제 ' + toRemove.length + '개 정리';
+                    await loadProducts();
+                }
+            }
+            showToast(msg);
         }
 
         init().then(() => checkImportParam());
