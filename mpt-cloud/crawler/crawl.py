@@ -89,7 +89,7 @@ def send_discord(embeds):
 
 
 def main():
-    products = supabase_get("product", "select=id,name,current_price,lowest_price,image_url")
+    products = supabase_get("product", "select=id,name,current_price,lowest_price,image_url,is_sold_out")
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}] Checking {len(products)} products...")
 
     now = datetime.now(timezone.utc).isoformat()
@@ -133,8 +133,21 @@ def main():
             update_data["previous_price"] = old_price
         supabase_patch("product", "id", goods_no, update_data)
 
-        # 가격 변동 시 알림 데이터 수집
-        if price_changed and old_price > 0:
+        # 재입고 알림
+        was_sold_out = p.get("is_sold_out", False)
+        if was_sold_out and not info["is_sold_out"]:
+            alerts.append({
+                "title": f"🔔 재입고! {p.get('name', str(goods_no))}",
+                "url": PRODUCT_URL + str(goods_no),
+                "color": 0x2ecc71,  # 초록
+                "fields": [
+                    {"name": "현재 가격", "value": f"**{info['price']:,}원**", "inline": True},
+                ],
+                **({"thumbnail": {"url": p["image_url"]}} if p.get("image_url") else {}),
+            })
+
+        # 가격 변동 시 알림 데이터 수집 (1% 미만 변동은 무시)
+        if price_changed and old_price > 0 and abs(info["price"] - old_price) / old_price >= 0.01:
             diff = info["price"] - old_price
             is_new_lowest = info["price"] < (old_lowest or info["price"])
             discount = round((1 - info["price"] / info["original_price"]) * 100) if info["original_price"] else 0
