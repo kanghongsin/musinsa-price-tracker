@@ -89,7 +89,7 @@ def send_discord(embeds):
 
 
 def main():
-    products = supabase_get("product", "select=id,name,current_price,lowest_price,image_url,is_sold_out")
+    products = supabase_get("product", "select=id,goods_no,name,current_price,lowest_price,image_url,is_sold_out,user_id")
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}] Checking {len(products)} products...")
 
     now = datetime.now(timezone.utc).isoformat()
@@ -98,7 +98,8 @@ def main():
     alerts = []
 
     for p in products:
-        goods_no = p["id"]
+        product_id = p["id"]
+        goods_no = p.get("goods_no") or product_id  # 하위 호환
         old_price = p.get("current_price") or 0
         old_lowest = p.get("lowest_price") or 0
         info = fetch_goods(goods_no)
@@ -110,7 +111,7 @@ def main():
         # 가격 변동 시에만 이력 추가
         if price_changed:
             supabase_post("price_history", {
-                "product_id": goods_no,
+                "product_id": product_id,
                 "price": info["price"],
                 "original_price": info["original_price"],
                 "checked_at": now,
@@ -131,7 +132,7 @@ def main():
         }
         if price_changed:
             update_data["previous_price"] = old_price
-        supabase_patch("product", "id", goods_no, update_data)
+        supabase_patch("product", "id", product_id, update_data)
 
         # 재입고 알림
         was_sold_out = p.get("is_sold_out", False)

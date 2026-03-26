@@ -12,6 +12,31 @@
         .container { max-width: 960px; margin: 0 auto; padding: 16px; }
         h1 { text-align: center; margin: 16px 0 24px; font-size: 22px; }
 
+        /* 사용자 전환 바 */
+        .user-bar {
+            display: flex; gap: 8px; align-items: center; margin-bottom: 16px;
+            padding: 10px 14px; background: #fff; border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06); flex-wrap: wrap;
+        }
+        .user-bar-label { font-size: 12px; color: #999; margin-right: 4px; }
+        .user-chip {
+            padding: 6px 14px; border: 2px solid #eee; border-radius: 20px;
+            font-size: 13px; cursor: pointer; background: #fff; color: #666;
+            transition: all 0.2s;
+        }
+        .user-chip:hover { border-color: #999; }
+        .user-chip.active { border-color: #000; background: #000; color: #fff; font-weight: 600; }
+        .user-chip.add-user {
+            border-style: dashed; border-color: #ccc; color: #999; font-size: 16px;
+            padding: 4px 12px; line-height: 1;
+        }
+        .user-chip.add-user:hover { border-color: #666; color: #666; }
+        .user-chip .delete-user {
+            margin-left: 6px; font-size: 11px; color: #ccc; cursor: pointer;
+        }
+        .user-chip.active .delete-user { color: rgba(255,255,255,0.5); }
+        .user-chip .delete-user:hover { color: #e44; }
+
         /* 상품 등록 */
         .register-box { display: flex; gap: 8px; margin-bottom: 16px; }
         .register-box input {
@@ -206,6 +231,10 @@
     <div class="container">
         <h1>MUSINSA Price Tracker</h1>
 
+        <div class="user-bar" id="userBar">
+            <span class="user-bar-label">사용자</span>
+        </div>
+
         <div class="register-box">
             <input type="text" id="urlInput" placeholder="무신사 상품 URL 또는 상품번호">
             <button id="registerBtn" onclick="registerProduct()">등록</button>
@@ -295,6 +324,8 @@
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // ============ STATE ============
+        let allUsers = [];
+        let currentUserId = localStorage.getItem('mpt_user_id') || 'default';
         let allProducts = [];
         let sortMode = 'discount_desc';
         let hideSoldout = false;
@@ -310,8 +341,72 @@
         // ============ INIT ============
         async function init() {
             loadState();
+            await loadUsers();
             await loadProducts();
             initBookmarklet();
+        }
+
+        // ============ USERS ============
+        async function loadUsers() {
+            const { data } = await sb.from('users').select('*').order('created_at');
+            allUsers = data || [];
+            if (!allUsers.find(u => u.id === currentUserId)) {
+                currentUserId = allUsers.length > 0 ? allUsers[0].id : 'default';
+                localStorage.setItem('mpt_user_id', currentUserId);
+            }
+            renderUserBar();
+        }
+
+        function renderUserBar() {
+            const bar = document.getElementById('userBar');
+            bar.innerHTML = '<span class="user-bar-label">사용자</span>' +
+                allUsers.map(u => {
+                    const active = u.id === currentUserId ? ' active' : '';
+                    const del = allUsers.length > 1 ? `<span class="delete-user" onclick="event.stopPropagation(); deleteUser('${u.id}')">&times;</span>` : '';
+                    return `<button class="user-chip${active}" onclick="switchUser('${u.id}')">${u.name}${del}</button>`;
+                }).join('') +
+                '<button class="user-chip add-user" onclick="addUser()" title="사용자 추가">+</button>';
+        }
+
+        async function switchUser(userId) {
+            currentUserId = userId;
+            localStorage.setItem('mpt_user_id', userId);
+            renderUserBar();
+            await loadProducts();
+            initBookmarklet();
+        }
+
+        async function addUser() {
+            const name = prompt('사용자 이름을 입력하세요:');
+            if (!name || !name.trim()) return;
+            const id = Date.now().toString(36);
+            const { error } = await sb.from('users').insert({ id, name: name.trim() });
+            if (error) { showToast('생성 실패: ' + error.message); return; }
+            await loadUsers();
+            await switchUser(id);
+            showToast(name.trim() + ' 추가됨');
+        }
+
+        async function deleteUser(userId) {
+            const user = allUsers.find(u => u.id === userId);
+            if (!user) return;
+            if (!confirm(`"${user.name}" 사용자를 삭제하시겠습니까?\n등록된 상품도 모두 삭제됩니다.`)) return;
+            // 해당 유저의 상품/이력 삭제
+            const { data: products } = await sb.from('product').select('id').eq('user_id', userId);
+            if (products) {
+                for (const p of products) {
+                    await sb.from('price_history').delete().eq('product_id', p.id);
+                }
+                await sb.from('product').delete().eq('user_id', userId);
+            }
+            await sb.from('users').delete().eq('id', userId);
+            if (currentUserId === userId) {
+                currentUserId = allUsers.find(u => u.id !== userId)?.id || 'default';
+                localStorage.setItem('mpt_user_id', currentUserId);
+            }
+            await loadUsers();
+            await loadProducts();
+            showToast(user.name + ' 삭제됨');
         }
 
         // ============ STATE 저장/복원 (localStorage) ============
@@ -352,7 +447,7 @@
 
         // ============ DATA ============
         async function loadProducts() {
-            const { data, error } = await sb.from('product').select('*').order('updated_at', { ascending: false });
+            const { data, error } = await sb.from('product').select('*').eq('user_id', currentUserId).order('updated_at', { ascending: false });
             if (error) {
                 document.getElementById('productList').innerHTML = '<div class="empty-state">DB 연결 실패. Supabase 설정을 확인하세요.</div>';
                 return;
@@ -528,8 +623,8 @@
                 const checked = selectedIds.has(p.id) ? 'checked' : '';
 
                 return `
-                <div class="product-card${p.is_sold_out ? ' sold-out' : ''} ${changeClass}" onclick="onCardClick(event, ${p.id}, '${esc(p.name)}')">
-                    <input type="checkbox" class="select-cb" ${checked} onclick="event.stopPropagation(); toggleSelect(${p.id})" />
+                <div class="product-card${p.is_sold_out ? ' sold-out' : ''} ${changeClass}" onclick="onCardClick(event, '${p.id}', '${esc(p.name)}')">
+                    <input type="checkbox" class="select-cb" ${checked} onclick="event.stopPropagation(); toggleSelect('${p.id}')" />
                     <img src="${p.image_url || ''}" alt="" onerror="this.src='https://placehold.co/90x90?text=No+Img'">
                     <div class="product-info">
                         <div>
@@ -554,7 +649,7 @@
                     </div>
                     <div class="product-actions" onclick="event.stopPropagation()">
                         <a class="btn-sm" href="${p.product_url}" target="_blank">무신사</a>
-                        <button class="btn-sm btn-del" onclick="deleteProduct(${p.id})">삭제</button>
+                        <button class="btn-sm btn-del" onclick="deleteProduct('${p.id}')">삭제</button>
                     </div>
                 </div>`;
             }).join('');
@@ -600,16 +695,7 @@
             if (selectedIds.has(id)) selectedIds.delete(id);
             else selectedIds.add(id);
             updateSelCount();
-            // checkbox 상태 업데이트
-            const cbs = document.querySelectorAll('.select-cb');
-            cbs.forEach(cb => {
-                const cardEl = cb.closest('.product-card');
-                if (cardEl) {
-                    const onclick = cardEl.getAttribute('onclick') || '';
-                    const m = onclick.match(/onCardClick\(event,\s*(\d+)/);
-                    if (m && parseInt(m[1]) === id) cb.checked = selectedIds.has(id);
-                }
-            });
+            renderProducts();
         }
 
         function selectAll() {
@@ -661,7 +747,8 @@
             btn.disabled = true; btn.textContent = '...';
 
             try {
-                const { data: existing } = await sb.from('product').select('id').eq('id', goodsNo);
+                const productId = goodsNo + '_' + currentUserId;
+                const { data: existing } = await sb.from('product').select('id').eq('id', productId);
                 if (existing && existing.length > 0) {
                     showToast('이미 등록된 상품입니다');
                     return;
@@ -671,7 +758,7 @@
                 if (!info) { showToast('상품 정보를 가져올 수 없습니다'); return; }
 
                 const product = {
-                    id: goodsNo, name: info.name, image_url: info.image_url,
+                    id: productId, goods_no: goodsNo, name: info.name, image_url: info.image_url,
                     product_url: 'https://www.musinsa.com/products/' + goodsNo,
                     brand_name: info.brand_name, category: info.category,
                     current_price: info.price, original_price: info.original_price,
@@ -679,11 +766,12 @@
                     is_sold_out: info.is_sold_out,
                     is_soon_out_of_stock: info.is_soon_out_of_stock,
                     review_count: info.review_count, review_score: info.review_score,
+                    user_id: currentUserId,
                 };
 
                 await sb.from('product').upsert(product);
                 await sb.from('price_history').insert({
-                    product_id: goodsNo, price: info.price, original_price: info.original_price,
+                    product_id: productId, price: info.price, original_price: info.original_price,
                 });
 
                 input.value = '';
@@ -737,20 +825,22 @@
             let success = 0, skip = 0, fail = 0;
             for (const gno of goodsNos) {
                 try {
-                    const { data: ex } = await sb.from('product').select('id').eq('id', gno);
+                    const pid = gno + '_' + currentUserId;
+                    const { data: ex } = await sb.from('product').select('id').eq('id', pid);
                     if (ex && ex.length > 0) { skip++; continue; }
                     const info = await fetchMusinsaGoods(gno);
                     if (!info) { fail++; continue; }
                     await sb.from('product').upsert({
-                        id: gno, name: info.name, image_url: info.image_url,
+                        id: pid, goods_no: gno, name: info.name, image_url: info.image_url,
                         product_url: 'https://www.musinsa.com/products/' + gno,
                         brand_name: info.brand_name, category: info.category,
                         current_price: info.price, original_price: info.original_price,
                         lowest_price: info.price, initial_price: info.price,
                         is_sold_out: info.is_sold_out,
+                        user_id: currentUserId,
                     });
                     await sb.from('price_history').insert({
-                        product_id: gno, price: info.price, original_price: info.original_price,
+                        product_id: pid, price: info.price, original_price: info.original_price,
                     });
                     success++;
                 } catch (e) { fail++; }
@@ -774,7 +864,8 @@
                 const p = allProducts[i];
                 btn.textContent = `🔄 ${i + 1}/${total}`;
                 try {
-                    const info = await fetchMusinsaGoods(p.id);
+                    const gno = p.goods_no || p.id;
+                    const info = await fetchMusinsaGoods(gno);
                     if (!info) { failed++; continue; }
 
                     const newLowest = Math.min(p.lowest_price || info.price, info.price);
@@ -896,7 +987,8 @@
         // ============ BOOKMARKLET ============
         function initBookmarklet() {
             const pageUrl = window.location.origin + window.location.pathname;
-            const code = "javascript:void(function(){var p='" + pageUrl + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;window.open(p+'?import='+all.join(',')+'&sync=1')}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
+            const uid = encodeURIComponent(currentUserId);
+            const code = "javascript:void(function(){var p='" + pageUrl + "';var u='" + uid + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;window.open(p+'?import='+all.join(',')+'&sync=1&user='+u)}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
             document.getElementById('bookmarkletLink').href = code;
         }
 
@@ -933,7 +1025,15 @@
             const params = new URLSearchParams(window.location.search);
             const importList = params.get('import');
             const shouldSync = params.get('sync') === '1';
+            const userParam = params.get('user');
             if (!importList) return;
+            // 북마클릿에서 넘어온 user로 전환
+            if (userParam && userParam !== currentUserId) {
+                currentUserId = userParam;
+                localStorage.setItem('mpt_user_id', userParam);
+                renderUserBar();
+                await loadProducts();
+            }
             window.history.replaceState({}, '', window.location.pathname);
             const goodsNos = importList.split(',').map(n => parseInt(n.trim())).filter(n => n > 0);
             if (!goodsNos.length) return;
@@ -943,7 +1043,7 @@
 
             // 좋아요 해제된 상품 자동 정리
             if (shouldSync) {
-                const goodsNoSet = new Set(goodsNos);
+                const goodsNoSet = new Set(goodsNos.map(n => n + '_' + currentUserId));
                 const toRemove = allProducts.filter(p => !goodsNoSet.has(p.id));
                 if (toRemove.length > 0) {
                     for (const p of toRemove) {
