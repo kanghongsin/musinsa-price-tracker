@@ -219,6 +219,21 @@
         .toast.show { display: block; }
         .toast .undo-btn { margin-left: 10px; color: #7bf; cursor: pointer; font-weight: 700; text-decoration: underline; border: none; background: none; font-size: 13px; }
 
+        /* 프로그레스바 */
+        .progress-bar-wrap {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; z-index: 300;
+            background: #eee; height: 28px;
+        }
+        .progress-bar-wrap.show { display: block; }
+        .progress-bar-fill {
+            height: 100%; background: #000; transition: width 0.3s;
+        }
+        .progress-bar-text {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 600; color: #fff; mix-blend-mode: difference;
+        }
+
         @media (max-width: 600px) {
             .product-card img { width: 70px; height: 70px; }
             .product-info .name { font-size: 13px; }
@@ -319,6 +334,10 @@
     </div>
 
     <div class="toast" id="toast"></div>
+    <div class="progress-bar-wrap" id="progressBar">
+        <div class="progress-bar-fill" id="progressFill" style="width:0%"></div>
+        <div class="progress-bar-text" id="progressText">0 / 0</div>
+    </div>
 
     <script>
         // ============ CONFIG ============
@@ -847,13 +866,26 @@
         // ============ BATCH ============
         window.mptBatchRegister = async function(goodsNos) {
             let success = 0, skip = 0, fail = 0;
-            for (const gno of goodsNos) {
-                try {
-                    const pid = gno + '_' + currentUserId;
-                    const { data: ex } = await sb.from('product').select('id').eq('id', pid);
-                    if (ex && ex.length > 0) { skip++; continue; }
+            const total = goodsNos.length;
+            const CHUNK = 5; // 동시 처리 수
+
+            // 프로그레스바 표시
+            showProgress(0, total);
+
+            // 이미 등록된 상품 한번에 조회
+            const pids = goodsNos.map(g => g + '_' + currentUserId);
+            const { data: existing } = await sb.from('product').select('id').in('id', pids);
+            const existingSet = new Set((existing || []).map(e => e.id));
+
+            const toRegister = goodsNos.filter(g => !existingSet.has(g + '_' + currentUserId));
+            skip = goodsNos.length - toRegister.length;
+
+            for (let i = 0; i < toRegister.length; i += CHUNK) {
+                const chunk = toRegister.slice(i, i + CHUNK);
+                const results = await Promise.allSettled(chunk.map(async gno => {
                     const info = await fetchMusinsaGoods(gno);
-                    if (!info) { fail++; continue; }
+                    if (!info) throw new Error('fetch fail');
+                    const pid = gno + '_' + currentUserId;
                     await sb.from('product').upsert({
                         id: pid, goods_no: gno, name: info.name, image_url: info.image_url,
                         product_url: 'https://www.musinsa.com/products/' + gno,
@@ -861,16 +893,20 @@
                         current_price: info.price, original_price: info.original_price,
                         lowest_price: info.price, initial_price: info.price,
                         is_sold_out: info.is_sold_out,
+                        is_soon_out_of_stock: info.is_soon_out_of_stock,
+                        review_count: info.review_count, review_score: info.review_score,
                         user_id: currentUserId,
                     });
                     await sb.from('price_history').insert({
                         product_id: pid, price: info.price, original_price: info.original_price,
                     });
-                    success++;
-                } catch (e) { fail++; }
+                }));
+                results.forEach(r => { if (r.status === 'fulfilled') success++; else fail++; });
+                showProgress(skip + success + fail, total);
             }
+            hideProgress();
             await loadProducts();
-            return { success, skip, fail, total: goodsNos.length };
+            return { success, skip, fail, total };
         };
 
         // ============ REFRESH ALL (가격 변동 하이라이트) ============
@@ -1012,7 +1048,8 @@
         function initBookmarklet() {
             const pageUrl = window.location.origin + window.location.pathname;
             const uid = encodeURIComponent(currentUserId);
-            const code = "javascript:void(function(){var p='" + pageUrl + "';var u='" + uid + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;window.open(p+'?import='+all.join(',')+'&sync=1&user='+u)}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
+            // localStorage 방식: URL 길이 제한 없음 (수백~수천 개 지원)
+            const code = "javascript:void(function(){var p='" + pageUrl + "';var u='" + uid + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;localStorage.setItem('mpt_import',JSON.stringify({goods:all,sync:true,user:u}));window.open(p)}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
             document.getElementById('bookmarkletLink').href = code;
         }
 
@@ -1023,6 +1060,17 @@
         // ============ UTIL ============
         function fmt(n) { return n ? n.toLocaleString('ko-KR') : '0'; }
         function esc(s) { return s ? s.replace(/'/g, "\\'").replace(/"/g, '&quot;') : ''; }
+
+        function showProgress(current, total) {
+            const wrap = document.getElementById('progressBar');
+            wrap.classList.add('show');
+            const pct = total > 0 ? Math.round(current / total * 100) : 0;
+            document.getElementById('progressFill').style.width = pct + '%';
+            document.getElementById('progressText').textContent = current + ' / ' + total + ' (' + pct + '%)';
+        }
+        function hideProgress() {
+            document.getElementById('progressBar').classList.remove('show');
+        }
 
         function showToast(msg) {
             const t = document.getElementById('toast');
@@ -1044,26 +1092,46 @@
         document.getElementById('searchInput').addEventListener('input', () => saveState());
         document.getElementById('chartModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeChart(); });
 
-        // URL 파라미터로 일괄 등록
+        // localStorage 또는 URL 파라미터로 일괄 등록
         async function checkImportParam() {
-            const params = new URLSearchParams(window.location.search);
-            const importList = params.get('import');
-            const shouldSync = params.get('sync') === '1';
-            const userParam = params.get('user');
-            if (!importList) return;
-            // 북마클릿에서 넘어온 user로 전환
+            let goodsNos = [], shouldSync = false, userParam = null;
+
+            // 1) localStorage 방식 (대용량 지원)
+            const stored = localStorage.getItem('mpt_import');
+            if (stored) {
+                localStorage.removeItem('mpt_import');
+                try {
+                    const data = JSON.parse(stored);
+                    goodsNos = (data.goods || []).map(n => parseInt(n)).filter(n => n > 0);
+                    shouldSync = !!data.sync;
+                    userParam = data.user || null;
+                } catch (e) {}
+            }
+
+            // 2) URL 파라미터 방식 (하위 호환)
+            if (!goodsNos.length) {
+                const params = new URLSearchParams(window.location.search);
+                const importList = params.get('import');
+                if (!importList) return;
+                goodsNos = importList.split(',').map(n => parseInt(n.trim())).filter(n => n > 0);
+                shouldSync = params.get('sync') === '1';
+                userParam = params.get('user');
+                window.history.replaceState({}, '', window.location.pathname);
+            }
+
+            if (!goodsNos.length) return;
+
+            // 사용자 전환
             if (userParam && userParam !== currentUserId) {
-                currentUserId = userParam;
-                localStorage.setItem('mpt_user_id', userParam);
+                currentUserId = decodeURIComponent(userParam);
+                localStorage.setItem('mpt_user_id', currentUserId);
                 renderUserBar();
                 await loadProducts();
             }
-            window.history.replaceState({}, '', window.location.pathname);
-            const goodsNos = importList.split(',').map(n => parseInt(n.trim())).filter(n => n > 0);
-            if (!goodsNos.length) return;
-            showToast('Importing ' + goodsNos.length + ' items...');
+
+            showToast(goodsNos.length + '개 가져오는 중...');
             const result = await window.mptBatchRegister(goodsNos);
-            let msg = 'Done! New: ' + result.success + ' / Skip: ' + result.skip + ' / Fail: ' + result.fail;
+            let msg = '완료! 신규: ' + result.success + ' / 기존: ' + result.skip + ' / 실패: ' + result.fail;
 
             // 좋아요 해제된 상품 표시 (삭제하지 않음)
             if (shouldSync) {
@@ -1074,13 +1142,13 @@
                     for (const p of toMark) {
                         await sb.from('product').update({ is_unliked: true }).eq('id', p.id);
                     }
-                    msg += ' / 좋아요 해제 ' + toMark.length + '개 표시';
+                    msg += ' / 좋아요 해제 ' + toMark.length + '개';
                 }
                 if (toUnmark.length > 0) {
                     for (const p of toUnmark) {
                         await sb.from('product').update({ is_unliked: false }).eq('id', p.id);
                     }
-                    msg += ' / 좋아요 복원 ' + toUnmark.length + '개';
+                    msg += ' / 복원 ' + toUnmark.length + '개';
                 }
                 if (toMark.length > 0 || toUnmark.length > 0) await loadProducts();
             }
