@@ -1,0 +1,44 @@
+name: DB Migration
+
+on:
+  push:
+    paths:
+      - 'mpt-cloud/migrations/*.sql'
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run migrations
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          for f in mpt-cloud/migrations/*.sql; do
+            [ -f "$f" ] || continue
+            BASENAME=$(basename "$f")
+            echo "Running: $BASENAME"
+
+            SQL=$(cat "$f")
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              "${SUPABASE_URL}/rest/v1/rpc/exec_sql" \
+              -H "apikey: ${SUPABASE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\": $(echo "$SQL" | jq -Rs .)}")
+
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
+              echo "  OK: $BASENAME"
+            else
+              echo "  FAIL: $BASENAME (HTTP $HTTP_CODE)"
+              echo "  $BODY"
+              exit 1
+            fi
+          done
+          echo "All migrations complete!"

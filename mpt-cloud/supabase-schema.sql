@@ -24,11 +24,17 @@ CREATE TABLE IF NOT EXISTS product (
     previous_price INTEGER,               -- 직전 가격 (변동률 계산용)
     is_sold_out BOOLEAN DEFAULT FALSE,
     is_soon_out_of_stock BOOLEAN DEFAULT FALSE,
+    is_unliked BOOLEAN DEFAULT FALSE,
     review_count INTEGER DEFAULT 0,
     review_score NUMERIC(2,1) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 마이그레이션 자동 실행용 함수 (GitHub Actions에서 사용)
+CREATE OR REPLACE FUNCTION exec_sql(query TEXT)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+AS $$ BEGIN EXECUTE query; END; $$;
 
 -- 가격 이력 테이블
 CREATE TABLE IF NOT EXISTS price_history (
