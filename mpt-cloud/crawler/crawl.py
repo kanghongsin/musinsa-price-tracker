@@ -101,105 +101,105 @@ def main():
     changed = 0
     alerts = []
 
+    # goods_no 기준으로 그룹화 (같은 상품은 1번만 크롤링)
+    goods_groups = {}  # goods_no -> [product, product, ...]
     for p in products:
-        product_id = p["id"]
-        goods_no = p.get("goods_no") or product_id  # 하위 호환
-        old_price = p.get("current_price") or 0
-        old_lowest = p.get("lowest_price") or 0
+        gno = p.get("goods_no") or p["id"]
+        goods_groups.setdefault(gno, []).append(p)
+
+    unique_count = len(goods_groups)
+    print(f"  Unique items: {unique_count} (from {len(products)} entries)")
+
+    for goods_no, group in goods_groups.items():
         info = fetch_goods(goods_no)
         if not info:
             continue
 
-        price_changed = info["price"] != old_price
+        # 같은 상품을 가진 모든 사용자에게 적용
+        for p in group:
+            product_id = p["id"]
+            old_price = p.get("current_price") or 0
+            old_lowest = p.get("lowest_price") or 0
+            price_changed = info["price"] != old_price
 
-        # 가격 변동 시에만 이력 추가
-        if price_changed:
-            supabase_post("price_history", {
-                "product_id": product_id,
-                "price": info["price"],
+            if price_changed:
+                supabase_post("price_history", {
+                    "product_id": product_id,
+                    "price": info["price"],
+                    "original_price": info["original_price"],
+                    "checked_at": now,
+                })
+                changed += 1
+
+            new_lowest = min(old_lowest or info["price"], info["price"])
+            update_data = {
+                "current_price": info["price"],
                 "original_price": info["original_price"],
-                "checked_at": now,
-            })
-            changed += 1
-
-        # 상품 정보 업데이트 (updated_at은 항상 갱신)
-        new_lowest = min(old_lowest or info["price"], info["price"])
-        update_data = {
-            "current_price": info["price"],
-            "original_price": info["original_price"],
-            "lowest_price": new_lowest,
-            "is_sold_out": info["is_sold_out"],
-            "is_soon_out_of_stock": info["is_soon_out_of_stock"],
-            "review_count": info["review_count"],
-            "review_score": info["review_score"],
-            "updated_at": now,
-        }
-        if price_changed:
-            update_data["previous_price"] = old_price
-        supabase_patch("product", "id", product_id, update_data)
-
-        # 재입고 알림
-        user_name = user_names.get(p.get("user_id", ""), "")
-        was_sold_out = p.get("is_sold_out", False)
-        if was_sold_out and not info["is_sold_out"]:
-            embed = {
-                "title": f"🔔 재입고! {p.get('name', str(goods_no))}",
-                "url": PRODUCT_URL + str(goods_no),
-                "color": 0x2ecc71,
-                "fields": [
-                    {"name": "현재 가격", "value": f"**{info['price']:,}원**", "inline": True},
-                ],
-                "footer": {"text": user_name},
+                "lowest_price": new_lowest,
+                "is_sold_out": info["is_sold_out"],
+                "is_soon_out_of_stock": info["is_soon_out_of_stock"],
+                "review_count": info["review_count"],
+                "review_score": info["review_score"],
+                "updated_at": now,
             }
-            if p.get("image_url"):
-                embed["thumbnail"] = {"url": p["image_url"]}
-            alerts.append(embed)
+            if price_changed:
+                update_data["previous_price"] = old_price
+            supabase_patch("product", "id", product_id, update_data)
 
-        # 가격 변동 시 알림 데이터 수집 (1% 미만 변동은 무시)
-        if price_changed and old_price > 0 and abs(info["price"] - old_price) / old_price >= 0.01:
-            diff = info["price"] - old_price
-            is_new_lowest = info["price"] < (old_lowest or info["price"])
-            discount = round((1 - info["price"] / info["original_price"]) * 100) if info["original_price"] else 0
+            # 알림 (사용자별)
+            user_name = user_names.get(p.get("user_id", ""), "")
+            was_sold_out = p.get("is_sold_out", False)
+            if was_sold_out and not info["is_sold_out"]:
+                embed = {
+                    "title": f"🔔 재입고! {p.get('name', str(goods_no))}",
+                    "url": PRODUCT_URL + str(goods_no),
+                    "color": 0x2ecc71,
+                    "fields": [
+                        {"name": "현재 가격", "value": f"**{info['price']:,}원**", "inline": True},
+                    ],
+                    "footer": {"text": user_name},
+                }
+                if p.get("image_url"):
+                    embed["thumbnail"] = {"url": p["image_url"]}
+                alerts.append(embed)
 
-            if diff < 0:
-                color = 0x3498db  # 파란색 (인하)
-                emoji = "🔽"
-            else:
-                color = 0xe74c3c  # 빨간색 (인상)
-                emoji = "🔺"
+            if price_changed and old_price > 0 and abs(info["price"] - old_price) / old_price >= 0.01:
+                diff = info["price"] - old_price
+                is_new_lowest = info["price"] < (old_lowest or info["price"])
+                discount = round((1 - info["price"] / info["original_price"]) * 100) if info["original_price"] else 0
 
-            title = f"{emoji} {p.get('name', str(goods_no))}"
-            if is_new_lowest:
-                title = f"🏆 역대 최저가! {p.get('name', str(goods_no))}"
-                color = 0xf1c40f  # 금색
+                if diff < 0:
+                    color = 0x3498db
+                    emoji = "🔽"
+                else:
+                    color = 0xe74c3c
+                    emoji = "🔺"
 
-            fields = [
-                {"name": "이전 가격", "value": f"{old_price:,}원", "inline": True},
-                {"name": "현재 가격", "value": f"**{info['price']:,}원** ({'+' if diff > 0 else ''}{diff:,})", "inline": True},
-                {"name": "할인율", "value": f"{discount}%", "inline": True},
-            ]
-            if is_new_lowest:
-                fields.append({"name": "최저가 갱신", "value": f"~~{old_lowest:,}원~~ → **{info['price']:,}원**", "inline": False})
+                title = f"{emoji} {p.get('name', str(goods_no))}"
+                if is_new_lowest:
+                    title = f"🏆 역대 최저가! {p.get('name', str(goods_no))}"
+                    color = 0xf1c40f
 
-            embed = {
-                "title": title,
-                "url": PRODUCT_URL + str(goods_no),
-                "color": color,
-                "fields": fields,
-                "footer": {"text": user_name},
-            }
-            thumb = p.get("image_url", "")
-            if thumb:
-                embed["thumbnail"] = {"url": thumb}
+                fields = [
+                    {"name": "이전 가격", "value": f"{old_price:,}원", "inline": True},
+                    {"name": "현재 가격", "value": f"**{info['price']:,}원** ({'+' if diff > 0 else ''}{diff:,})", "inline": True},
+                    {"name": "할인율", "value": f"{discount}%", "inline": True},
+                ]
+                if is_new_lowest:
+                    fields.append({"name": "최저가 갱신", "value": f"~~{old_lowest:,}원~~ → **{info['price']:,}원**", "inline": False})
 
-            alerts.append(embed)
+                embed = {
+                    "title": title,
+                    "url": PRODUCT_URL + str(goods_no),
+                    "color": color,
+                    "fields": fields,
+                    "footer": {"text": user_name},
+                }
+                if p.get("image_url"):
+                    embed["thumbnail"] = {"url": p["image_url"]}
+                alerts.append(embed)
 
-        status = " [SOLD OUT]" if info["is_sold_out"] else ""
-        change = ""
-        if price_changed:
-            diff = info["price"] - old_price
-            change = f" ({'+' if diff > 0 else ''}{diff:,})"
-        print(f"  {goods_no}: {info['price']:,}원{change}{status}")
+        print(f"  {goods_no}: {info['price']:,}원" + (" [SOLD OUT]" if info["is_sold_out"] else ""))
         updated += 1
 
     # Discord 알림 전송
