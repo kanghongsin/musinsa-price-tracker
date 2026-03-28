@@ -89,6 +89,10 @@ def send_discord(embeds):
 
 
 def main():
+    # 사용자 이름 매핑
+    users = supabase_get("users", "select=id,name")
+    user_names = {u["id"]: u["name"] for u in users}
+
     products = supabase_get("product", "select=id,goods_no,name,current_price,lowest_price,image_url,is_sold_out,user_id")
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}] Checking {len(products)} products...")
 
@@ -135,17 +139,21 @@ def main():
         supabase_patch("product", "id", product_id, update_data)
 
         # 재입고 알림
+        user_name = user_names.get(p.get("user_id", ""), "")
         was_sold_out = p.get("is_sold_out", False)
         if was_sold_out and not info["is_sold_out"]:
-            alerts.append({
+            embed = {
                 "title": f"🔔 재입고! {p.get('name', str(goods_no))}",
                 "url": PRODUCT_URL + str(goods_no),
-                "color": 0x2ecc71,  # 초록
+                "color": 0x2ecc71,
                 "fields": [
                     {"name": "현재 가격", "value": f"**{info['price']:,}원**", "inline": True},
                 ],
-                **({"thumbnail": {"url": p["image_url"]}} if p.get("image_url") else {}),
-            })
+                "footer": {"text": user_name},
+            }
+            if p.get("image_url"):
+                embed["thumbnail"] = {"url": p["image_url"]}
+            alerts.append(embed)
 
         # 가격 변동 시 알림 데이터 수집 (1% 미만 변동은 무시)
         if price_changed and old_price > 0 and abs(info["price"] - old_price) / old_price >= 0.01:
@@ -178,6 +186,7 @@ def main():
                 "url": PRODUCT_URL + str(goods_no),
                 "color": color,
                 "fields": fields,
+                "footer": {"text": user_name},
             }
             thumb = p.get("image_url", "")
             if thumb:
