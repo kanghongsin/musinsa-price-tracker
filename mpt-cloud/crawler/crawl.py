@@ -93,7 +93,7 @@ def main():
     users = supabase_get("users", "select=id,name")
     user_names = {u["id"]: u["name"] for u in users}
 
-    products = supabase_get("product", "select=id,goods_no,name,current_price,lowest_price,image_url,is_sold_out,user_id")
+    products = supabase_get("product", "select=id,goods_no,name,current_price,lowest_price,image_url,is_sold_out,is_soon_out_of_stock,updated_at,user_id&is_deleted=eq.false")
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}] Checking {len(products)} products...")
 
     now = datetime.now(timezone.utc).isoformat()
@@ -121,6 +121,10 @@ def main():
             old_price = p.get("current_price") or 0
             old_lowest = p.get("lowest_price") or 0
             price_changed = info["price"] != old_price
+            status_changed = (
+                info["is_sold_out"] != p.get("is_sold_out", False) or
+                info["is_soon_out_of_stock"] != p.get("is_soon_out_of_stock", False)
+            )
 
             if price_changed:
                 supabase_post("price_history", {
@@ -130,6 +134,11 @@ def main():
                     "checked_at": now,
                 })
                 changed += 1
+
+            # 가격·품절 상태 모두 변동 없고, updated_at이 이미 있으면 패치 생략
+            never_crawled = not p.get("updated_at")
+            if not price_changed and not status_changed and not never_crawled:
+                continue
 
             new_lowest = min(old_lowest or info["price"], info["price"])
             update_data = {

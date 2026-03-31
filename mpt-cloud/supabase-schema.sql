@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS product (
     is_sold_out BOOLEAN DEFAULT FALSE,
     is_soon_out_of_stock BOOLEAN DEFAULT FALSE,
     is_unliked BOOLEAN DEFAULT FALSE,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    deleted_at TIMESTAMPTZ,
     review_count INTEGER DEFAULT 0,
     review_score NUMERIC(2,1) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -39,7 +41,7 @@ AS $$ BEGIN EXECUTE query; END; $$;
 -- 가격 이력 테이블
 CREATE TABLE IF NOT EXISTS price_history (
     id BIGSERIAL PRIMARY KEY,
-    product_id TEXT REFERENCES product(id) ON DELETE CASCADE,
+    product_id TEXT REFERENCES product(id) ON DELETE RESTRICT,
     price INTEGER,
     original_price INTEGER,
     checked_at TIMESTAMPTZ DEFAULT NOW()

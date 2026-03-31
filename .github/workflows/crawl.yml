@@ -2,7 +2,7 @@ name: Price Crawler
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # 2시간마다
+    - cron: '0 4,10,16,22 * * *'  # 6시간마다 (KST 01:00, 07:00, 13:00, 19:00)
   workflow_dispatch:        # 수동 실행 가능
 
 jobs:

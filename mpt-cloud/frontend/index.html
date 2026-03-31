@@ -202,6 +202,13 @@
         .toggle-btn { background: none; border: 1px solid #ddd; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; color: #666; }
         .guide-content { display: none; margin-top: 10px; }
         .guide-content.show { display: block; }
+        .method-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+        .method-tab { padding: 5px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; cursor: pointer; background: #fff; color: #666; }
+        .method-tab.active { background: #000; color: #fff; border-color: #000; }
+        .method-panel { display: none; }
+        .method-panel.active { display: block; }
+        .console-script { background: #f4f4f4; border-radius: 6px; padding: 10px; font-size: 11px; font-family: monospace; color: #333; word-break: break-all; max-height: 80px; overflow: hidden; margin: 8px 0; }
+        .copy-btn { padding: 6px 14px; background: #000; color: #fff; border: none; border-radius: 6px; font-size: 12px; cursor: pointer; }
 
         /* 모달 */
         .modal-overlay {
@@ -263,13 +270,28 @@
                 <button class="toggle-btn" onclick="toggleGuide()">사용법</button>
             </div>
             <div class="guide-content" id="guideContent">
-                <div class="steps">
-                    <b>1.</b> 아래 버튼을 <b>북마크바로 드래그</b><br>
-                    <b>2.</b> 무신사 로그인 후 <a href="https://www.musinsa.com/like/goods" target="_blank">좋아요 페이지</a> 접속<br>
-                    <b>3.</b> 북마크바에서 클릭 → 자동 등록
+                <div class="method-tabs">
+                    <button class="method-tab active" onclick="switchMethod('bookmarklet')">북마클릿</button>
+                    <button class="method-tab" onclick="switchMethod('console')">콘솔 스크립트</button>
                 </div>
-                <a class="bookmarklet-link" id="bookmarkletLink" href="#">좋아요 추적등록</a>
-                <div class="bm-hint">이 버튼을 북마크바로 드래그</div>
+                <div class="method-panel active" id="methodBookmarklet">
+                    <div class="steps">
+                        <b>1.</b> 아래 버튼을 <b>북마크바로 드래그</b><br>
+                        <b>2.</b> 무신사 로그인 후 <a href="https://www.musinsa.com/like/goods" target="_blank">좋아요 페이지</a> 접속<br>
+                        <b>3.</b> 북마크바에서 클릭 → 자동 등록
+                    </div>
+                    <a class="bookmarklet-link" id="bookmarkletLink" href="#">좋아요 추적등록</a>
+                    <div class="bm-hint">이 버튼을 북마크바로 드래그</div>
+                </div>
+                <div class="method-panel" id="methodConsole">
+                    <div class="steps">
+                        <b>1.</b> 무신사 로그인 후 <a href="https://www.musinsa.com/like/goods" target="_blank">좋아요 페이지</a> 접속<br>
+                        <b>2.</b> F12 → Console 탭<br>
+                        <b>3.</b> 아래 코드 복사 후 붙여넣고 Enter
+                    </div>
+                    <div class="console-script" id="consoleScript"></div>
+                    <button class="copy-btn" onclick="copyConsoleScript()">복사</button>
+                </div>
             </div>
         </div>
 
@@ -413,15 +435,11 @@
         async function deleteUser(userId) {
             const user = allUsers.find(u => u.id === userId);
             if (!user) return;
-            if (!confirm(`"${user.name}" 사용자를 삭제하시겠습니까?\n등록된 상품도 모두 삭제됩니다.`)) return;
-            // 해당 유저의 상품/이력 삭제
-            const { data: products } = await sb.from('product').select('id').eq('user_id', userId);
-            if (products) {
-                for (const p of products) {
-                    await sb.from('price_history').delete().eq('product_id', p.id);
-                }
-                await sb.from('product').delete().eq('user_id', userId);
-            }
+            if (!confirm(`"${user.name}" 사용자를 삭제하시겠습니까?\n등록된 상품도 모두 숨겨집니다.`)) return;
+            // 해당 유저의 상품 소프트 삭제
+            const now = new Date().toISOString();
+            await sb.from('product').update({ is_deleted: true, deleted_at: now }).eq('user_id', userId);
+            // 유저는 실제 삭제 (상품/이력 데이터는 DB에 보존됨)
             await sb.from('users').delete().eq('id', userId);
             if (currentUserId === userId) {
                 currentUserId = allUsers.find(u => u.id !== userId)?.id || 'default';
@@ -476,7 +494,7 @@
 
         // ============ DATA ============
         async function loadProducts() {
-            const { data, error } = await sb.from('product').select('*').eq('user_id', currentUserId).order('updated_at', { ascending: false });
+            const { data, error } = await sb.from('product').select('*').eq('user_id', currentUserId).eq('is_deleted', false).order('updated_at', { ascending: false });
             if (error) {
                 document.getElementById('productList').innerHTML = '<div class="empty-state">DB 연결 실패. Supabase 설정을 확인하세요.</div>';
                 return;
@@ -761,13 +779,12 @@
             if (selectedIds.size === 0) { showToast('선택된 상품이 없습니다'); return; }
             if (!confirm(selectedIds.size + '개 상품을 삭제하시겠습니까?')) return;
 
-            // undo 데이터 저장
-            const toDelete = allProducts.filter(p => selectedIds.has(p.id));
-            undoData = { type: 'bulk', products: toDelete };
+            const ids = [...selectedIds];
+            undoData = { type: 'bulk', ids };
 
-            for (const id of selectedIds) {
-                await sb.from('price_history').delete().eq('product_id', id);
-                await sb.from('product').delete().eq('id', id);
+            const now = new Date().toISOString();
+            for (const id of ids) {
+                await sb.from('product').update({ is_deleted: true, deleted_at: now }).eq('id', id);
             }
 
             const count = selectedIds.size;
@@ -784,42 +801,50 @@
             const raw = input.value.trim();
             if (!raw) return;
 
-            const goodsNo = extractGoodsNo(raw);
-            if (!goodsNo) { showToast('Invalid URL'); return; }
+            // 여러 개 입력 지원: 콤마, 공백, 줄바꿈으로 구분
+            const parts = raw.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+            const goodsNos = parts.map(extractGoodsNo).filter(Boolean);
+
+            if (goodsNos.length === 0) { showToast('유효한 상품번호/URL이 없습니다'); return; }
 
             btn.disabled = true; btn.textContent = '...';
 
             try {
-                const productId = goodsNo + '_' + currentUserId;
-                const { data: existing } = await sb.from('product').select('id').eq('id', productId);
-                if (existing && existing.length > 0) {
-                    showToast('이미 등록된 상품입니다');
-                    return;
+                if (goodsNos.length === 1) {
+                    // 단일 등록
+                    const goodsNo = goodsNos[0];
+                    const productId = goodsNo + '_' + currentUserId;
+                    const { data: existing } = await sb.from('product').select('id').eq('id', productId).eq('is_deleted', false);
+                    if (existing && existing.length > 0) {
+                        showToast('이미 등록된 상품입니다');
+                        return;
+                    }
+                    const info = await fetchMusinsaGoods(goodsNo);
+                    if (!info) { showToast('상품 정보를 가져올 수 없습니다'); return; }
+                    await sb.from('product').upsert({
+                        id: productId, goods_no: goodsNo, name: info.name, image_url: info.image_url,
+                        product_url: 'https://www.musinsa.com/products/' + goodsNo,
+                        brand_name: info.brand_name, category: info.category,
+                        current_price: info.price, original_price: info.original_price,
+                        lowest_price: info.price, initial_price: info.price,
+                        is_sold_out: info.is_sold_out,
+                        is_soon_out_of_stock: info.is_soon_out_of_stock,
+                        review_count: info.review_count, review_score: info.review_score,
+                        user_id: currentUserId,
+                        is_deleted: false, deleted_at: null,
+                    });
+                    await sb.from('price_history').insert({
+                        product_id: productId, price: info.price, original_price: info.original_price,
+                    });
+                    input.value = '';
+                    showToast('등록 완료!');
+                    await loadProducts();
+                } else {
+                    // 여러 개 → 배치 등록
+                    input.value = '';
+                    const result = await window.mptBatchRegister(goodsNos);
+                    showToast(`완료! 신규: ${result.success} / 기존: ${result.skip} / 실패: ${result.fail}`);
                 }
-
-                const info = await fetchMusinsaGoods(goodsNo);
-                if (!info) { showToast('상품 정보를 가져올 수 없습니다'); return; }
-
-                const product = {
-                    id: productId, goods_no: goodsNo, name: info.name, image_url: info.image_url,
-                    product_url: 'https://www.musinsa.com/products/' + goodsNo,
-                    brand_name: info.brand_name, category: info.category,
-                    current_price: info.price, original_price: info.original_price,
-                    lowest_price: info.price, initial_price: info.price,
-                    is_sold_out: info.is_sold_out,
-                    is_soon_out_of_stock: info.is_soon_out_of_stock,
-                    review_count: info.review_count, review_score: info.review_score,
-                    user_id: currentUserId,
-                };
-
-                await sb.from('product').upsert(product);
-                await sb.from('price_history').insert({
-                    product_id: productId, price: info.price, original_price: info.original_price,
-                });
-
-                input.value = '';
-                showToast('등록 완료!');
-                await loadProducts();
             } catch (e) {
                 showToast('Error: ' + e.message);
             } finally {
@@ -874,7 +899,7 @@
 
             // 이미 등록된 상품 한번에 조회
             const pids = goodsNos.map(g => g + '_' + currentUserId);
-            const { data: existing } = await sb.from('product').select('id').in('id', pids);
+            const { data: existing } = await sb.from('product').select('id').in('id', pids).eq('is_deleted', false);
             const existingSet = new Set((existing || []).map(e => e.id));
 
             const toRegister = goodsNos.filter(g => !existingSet.has(g + '_' + currentUserId));
@@ -896,6 +921,7 @@
                         is_soon_out_of_stock: info.is_soon_out_of_stock,
                         review_count: info.review_count, review_score: info.review_score,
                         user_id: currentUserId,
+                        is_deleted: false, deleted_at: null,
                     });
                     await sb.from('price_history').insert({
                         product_id: pid, price: info.price, original_price: info.original_price,
@@ -966,17 +992,15 @@
             setTimeout(() => { priceChanges = {}; renderProducts(); }, 5000);
         }
 
-        // ============ DELETE (undo 지원) ============
+        // ============ DELETE (소프트 삭제 + undo 지원) ============
         async function deleteProduct(id) {
-            // undo 데이터 저장
             const product = allProducts.find(p => p.id === id);
             if (!product) return;
 
-            const { data: history } = await sb.from('price_history').select('*').eq('product_id', id);
-            undoData = { type: 'single', product, history: history || [] };
+            undoData = { type: 'single', ids: [id] };
 
-            await sb.from('price_history').delete().eq('product_id', id);
-            await sb.from('product').delete().eq('id', id);
+            // 소프트 삭제: DB에서 지우지 않고 is_deleted 플래그만 설정
+            await sb.from('product').update({ is_deleted: true, deleted_at: new Date().toISOString() }).eq('id', id);
             await loadProducts();
             showToastWithUndo('삭제됨');
         }
@@ -984,15 +1008,9 @@
         async function undoDelete() {
             if (!undoData) return;
             try {
-                if (undoData.type === 'single') {
-                    await sb.from('product').upsert(undoData.product);
-                    if (undoData.history.length > 0) {
-                        await sb.from('price_history').upsert(undoData.history);
-                    }
-                } else if (undoData.type === 'bulk') {
-                    for (const p of undoData.products) {
-                        await sb.from('product').upsert(p);
-                    }
+                // 소프트 삭제 복원: is_deleted를 false로 되돌림
+                for (const id of undoData.ids) {
+                    await sb.from('product').update({ is_deleted: false, deleted_at: null }).eq('id', id);
                 }
                 undoData = null;
                 showToast('복원됨!');
@@ -1048,9 +1066,30 @@
         function initBookmarklet() {
             const pageUrl = window.location.origin + window.location.pathname;
             const uid = encodeURIComponent(currentUserId);
-            // localStorage 방식: URL 길이 제한 없음 (수백~수천 개 지원)
-            const code = "javascript:void(function(){var p='" + pageUrl + "';var u='" + uid + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;localStorage.setItem('mpt_import',JSON.stringify({goods:all,sync:true,user:u}));window.open(p)}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
-            document.getElementById('bookmarkletLink').href = code;
+
+            // 북마클릿: window.open으로 새 탭
+            const bmCode = "javascript:void(function(){var p='" + pageUrl + "';var u='" + uid + "';fetch('https://like.musinsa.com/api2/like/like-page/v1/tab/goods',{credentials:'include'}).then(function(r){return r.json()}).then(function(d){if(d.meta.result!=='SUCCESS'){alert('Login required!');return}var all=[];function collect(d2){var items=d2.data.data||d2.data.contents||d2.data||[];items.forEach(function(i){if(i.goodsNo)all.push(i.goodsNo)});var nx=d2.link&&d2.link.next;if(nx){fetch(nx,{credentials:'include'}).then(function(r){return r.json()}).then(collect).catch(function(){done()})}else{done()}}function done(){if(!all.length){alert('No liked items');return}if(!confirm('Register '+all.length+' items?'))return;window.open(p+'#mpt='+encodeURIComponent(JSON.stringify({goods:all,sync:true,user:u})))}collect(d)}).catch(function(){alert('Run on musinsa.com/like/goods!')})})()";
+            document.getElementById('bookmarkletLink').href = bmCode;
+
+            // 콘솔 스크립트: window.location.href로 현재 탭 이동 (팝업 차단 없음)
+            const consoleCode = `(function(){var p='${pageUrl}',u='${uid}',all=[];function collect(url){fetch(url,{credentials:'include'}).then(r=>r.json()).then(d=>{var items=d.data.data||d.data.contents||d.data||[];items.forEach(i=>{if(i.goodsNo)all.push(i.goodsNo)});var nx=d.link&&d.link.next;if(nx)collect(nx);else done()}).catch(done)}function done(){if(!all.length){alert('좋아요 상품 없음');return}if(!confirm(all.length+'개 등록할까요?'))return;window.location.href=p+'#mpt='+encodeURIComponent(JSON.stringify({goods:all,sync:true,user:u}))}collect('https://like.musinsa.com/api2/like/like-page/v1/tab/goods')})()`;
+            document.getElementById('consoleScript').textContent = consoleCode;
+        }
+
+        function switchMethod(method) {
+            document.querySelectorAll('.method-tab').forEach((t, i) => t.classList.toggle('active', (i === 0) === (method === 'bookmarklet')));
+            document.getElementById('methodBookmarklet').classList.toggle('active', method === 'bookmarklet');
+            document.getElementById('methodConsole').classList.toggle('active', method === 'console');
+        }
+
+        function copyConsoleScript() {
+            const text = document.getElementById('consoleScript').textContent;
+            navigator.clipboard.writeText(text).then(() => showToast('복사됨!')).catch(() => {
+                const ta = document.createElement('textarea');
+                ta.value = text; document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); document.body.removeChild(ta);
+                showToast('복사됨!');
+            });
         }
 
         function toggleGuide() {
@@ -1096,19 +1135,33 @@
         async function checkImportParam() {
             let goodsNos = [], shouldSync = false, userParam = null;
 
-            // 1) localStorage 방식 (대용량 지원)
-            const stored = localStorage.getItem('mpt_import');
-            if (stored) {
-                localStorage.removeItem('mpt_import');
+            // 1) URL 해시 방식 (크로스 오리진 지원, 대용량)
+            const hash = window.location.hash;
+            if (hash.startsWith('#mpt=')) {
                 try {
-                    const data = JSON.parse(stored);
+                    const data = JSON.parse(decodeURIComponent(hash.slice(5)));
                     goodsNos = (data.goods || []).map(n => parseInt(n)).filter(n => n > 0);
                     shouldSync = !!data.sync;
                     userParam = data.user || null;
                 } catch (e) {}
+                window.history.replaceState({}, '', window.location.pathname);
             }
 
-            // 2) URL 파라미터 방식 (하위 호환)
+            // 2) localStorage 방식 (동일 오리진 환경 호환)
+            if (!goodsNos.length) {
+                const stored = localStorage.getItem('mpt_import');
+                if (stored) {
+                    localStorage.removeItem('mpt_import');
+                    try {
+                        const data = JSON.parse(stored);
+                        goodsNos = (data.goods || []).map(n => parseInt(n)).filter(n => n > 0);
+                        shouldSync = !!data.sync;
+                        userParam = data.user || null;
+                    } catch (e) {}
+                }
+            }
+
+            // 3) URL 파라미터 방식 (하위 호환)
             if (!goodsNos.length) {
                 const params = new URLSearchParams(window.location.search);
                 const importList = params.get('import');
