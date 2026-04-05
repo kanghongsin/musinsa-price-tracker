@@ -21,18 +21,18 @@
 
 ```mermaid
 graph TD
-    A[👤 사용자] -->|URL 또는 상품번호 입력| B[Cloudflare Pages\nfrontend/index.html]
-    A -->|북마클릿 or 콘솔 스크립트| C[무신사 좋아요 페이지]
-    C -->|goodsNo 목록 URL 해시로 전달| B
+    User[사용자] -->|URL or 상품번호| Frontend[Cloudflare Pages]
+    User -->|북마클릿 or 콘솔 스크립트| Musinsa[무신사 좋아요 페이지]
+    Musinsa -->|URL 해시로 goodsNo 전달| Frontend
 
-    B -->|상품 등록 · 조회 · 삭제| D[(Supabase\nPostgreSQL)]
+    Frontend -->|상품 등록 / 조회 / 삭제| DB[(Supabase PostgreSQL)]
 
-    E[GitHub Actions\ncrawl.yml] -->|KST 01·07·13·19시| F[crawler/crawl.py]
-    F -->|가격 · 재고 조회| G[무신사 API]
-    F -->|가격 이력 저장\n변동 시 product 업데이트| D
-    F -->|가격 변동 · 재입고 알림| H[Discord Webhook]
+    Cron[GitHub Actions cron] -->|하루 4회| Crawler[crawler/crawl.py]
+    Crawler -->|가격 및 재고 조회| MusinsaAPI[무신사 API]
+    Crawler -->|가격 이력 저장 및 업데이트| DB
+    Crawler -->|가격 변동 및 재입고 알림| Discord[Discord Webhook]
 
-    I[GitHub Actions\nmigrate.yml] -->|migrations 폴더에 SQL push 시 자동 실행| D
+    Migrate[GitHub Actions migrate] -->|migrations SQL push 시| DB
 ```
 
 ---
