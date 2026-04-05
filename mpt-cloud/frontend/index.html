@@ -155,6 +155,7 @@
         .product-card.sold-out { opacity: 0.55; }
         .product-card.sold-out img { filter: grayscale(0.8); }
         .product-info .lowest { font-size: 11px; color: #e44; margin-top: 2px; }
+        .product-info .reg-price { font-size: 11px; color: #888; margin-top: 2px; }
         .product-info .reg-date { font-size: 10px; color: #bbb; margin-top: 2px; }
         .product-actions { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
         .btn-sm {
@@ -707,7 +708,7 @@
                             ${isLowest ? '<span class="badge-lowest">🏆 최저가</span>' : ''}
                             ${changeIndicator}
                         </div>
-                        ${p.initial_price && p.initial_price !== p.current_price ? `<div class="lowest">등록가 ${fmt(p.initial_price)}원</div>` : ''}
+                        ${p.initial_price && p.initial_price !== p.current_price ? `<div class="reg-price">등록가 ${fmt(p.initial_price)}원</div>` : ''}
                         ${p.lowest_price && p.lowest_price < p.current_price ? `<div class="lowest">최저 ${fmt(p.lowest_price)}원</div>` : ''}
                         ${p.review_count > 0 ? `<div class="review-info">⭐ ${p.review_score || 0} (${p.review_count})</div>` : ''}
                         <div class="reg-date">${p.created_at ? new Date(p.created_at).toLocaleDateString('ko-KR') : ''}</div>
