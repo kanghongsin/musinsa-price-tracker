@@ -133,10 +133,14 @@
         .product-info .name { font-size: 14px; font-weight: 600; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .product-info .price-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
         .product-info .current-price { font-size: 16px; font-weight: 700; }
+        .product-info .current-price.deal-low { color: #e67e22; }
+        .product-info .current-price.deal-mid { color: #e53935; }
+        .product-info .current-price.deal-high { color: #c62828; font-size: 17px; }
         .product-info .original-price { font-size: 12px; color: #999; text-decoration: line-through; }
         .product-info .discount-badge {
             font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
         }
+        .discount-badge.deal-high { font-size: 13px; padding: 3px 8px; }
         .badge-down { background: #fee; color: #e33; }
         .badge-up { background: #eef; color: #66a; }
         .badge-same { background: #f5f5f5; color: #999; }
@@ -144,6 +148,8 @@
         .badge-soon-oos { background: #fff3e0; color: #e65100; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
         .badge-unliked { background: #f3e5f5; color: #7b1fa2; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
         .product-card.unliked { opacity: 0.5; border-left: 3px solid #ce93d8; }
+        .product-card.deal-high-card { border-left: 3px solid #e53935; }
+        .product-card.deal-lowest-card { border-left: 3px solid #ffca28; }
         .badge-lowest { background: linear-gradient(135deg, #fff8e1, #ffe082); color: #e65100; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; border: 1px solid #ffca28; }
         .review-info { font-size: 11px; color: #888; margin-top: 2px; }
         .product-card.sold-out { opacity: 0.55; }
@@ -673,8 +679,15 @@
 
                 const checked = selectedIds.has(p.id) ? 'checked' : '';
 
+                // 쿠폰 할인율 (original_price 대비 current_price)
+                const isLowest = !p.is_sold_out && p.lowest_price && p.current_price <= p.lowest_price && p.previous_price;
+                const discPct = p.original_price > p.current_price
+                    ? Math.round((1 - p.current_price / p.original_price) * 100) : 0;
+                const priceColorClass = discPct >= 30 ? 'deal-high' : discPct >= 20 ? 'deal-mid' : discPct >= 10 ? 'deal-low' : '';
+                const cardDealClass = isLowest ? 'deal-lowest-card' : discPct >= 30 ? 'deal-high-card' : '';
+
                 return `
-                <div class="product-card${p.is_sold_out ? ' sold-out' : ''}${p.is_unliked ? ' unliked' : ''} ${changeClass}" onclick="onCardClick(event, '${p.id}', '${esc(p.name)}')">
+                <div class="product-card${p.is_sold_out ? ' sold-out' : ''}${p.is_unliked ? ' unliked' : ''}${cardDealClass ? ' ' + cardDealClass : ''} ${changeClass}" onclick="onCardClick(event, '${p.id}', '${esc(p.name)}')">
                     <input type="checkbox" class="select-cb" ${checked} onclick="event.stopPropagation(); toggleSelect('${p.id}')" />
                     <img src="${p.image_url || ''}" alt="" onerror="this.src='https://placehold.co/90x90?text=No+Img'">
                     <div class="product-info">
@@ -687,11 +700,11 @@
                         </div>
                         <div class="name" title="${esc(p.name)}">${p.name}</div>
                         <div class="price-row">
-                            <span class="current-price">${fmt(p.current_price)}원</span>
-                            ${p.original_price > p.current_price ? `<span class="original-price">${fmt(p.original_price)}원</span>` : ''}
-                            ${p.original_price > p.current_price ? `<span class="discount-badge badge-down">${Math.round((1 - p.current_price / p.original_price) * 100)}%</span>` : ''}
+                            <span class="current-price${priceColorClass ? ' ' + priceColorClass : ''}">${fmt(p.current_price)}원</span>
+                            ${discPct > 0 ? `<span class="original-price">${fmt(p.original_price)}원</span>` : ''}
+                            ${discPct > 0 ? `<span class="discount-badge badge-down${priceColorClass === 'deal-high' ? ' deal-high' : ''}">${discPct}%</span>` : ''}
                             ${dr !== 0 ? `<span class="discount-badge ${badgeClass}">${badgeText}</span>` : ''}
-                            ${!p.is_sold_out && p.lowest_price && p.current_price <= p.lowest_price && p.previous_price ? '<span class="badge-lowest">🏆 최저가</span>' : ''}
+                            ${isLowest ? '<span class="badge-lowest">🏆 최저가</span>' : ''}
                             ${changeIndicator}
                         </div>
                         ${p.initial_price && p.initial_price !== p.current_price ? `<div class="lowest">등록가 ${fmt(p.initial_price)}원</div>` : ''}
