@@ -704,9 +704,9 @@
                                 ${p.is_sold_out ? '<span class="badge-soldout">품절</span>' : ''}
                                 ${!p.is_sold_out && p.is_soon_out_of_stock ? '<span class="badge-soon-oos">품절임박</span>' : ''}
                                 ${p.is_unliked ? '<span class="badge-unliked">좋아요 해제</span>' : ''}
+                                ${p.review_count > 0 ? `<span class="review-info">⭐ ${p.review_score || 0} (${p.review_count})</span>` : ''}
                             </div>
                             <div class="meta-right">
-                                ${p.review_count > 0 ? `<span>⭐ ${p.review_score || 0} (${p.review_count})</span>` : ''}
                                 <span class="target-row" onclick="editTargetPrice(event, '${p.id}', ${p.target_price || 0})">🎯 ${p.target_price ? fmt(p.target_price) + '원' : '미설정'}</span>
                             </div>
                         </div>
