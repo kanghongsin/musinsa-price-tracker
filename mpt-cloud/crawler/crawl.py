@@ -93,7 +93,7 @@ def main():
     users = supabase_get("users", "select=id,name")
     user_names = {u["id"]: u["name"] for u in users}
 
-    products = supabase_get("product", "select=id,goods_no,name,current_price,lowest_price,image_url,is_sold_out,is_soon_out_of_stock,updated_at,user_id&is_deleted=eq.false")
+    products = supabase_get("product", "select=id,goods_no,name,current_price,lowest_price,image_url,is_sold_out,is_soon_out_of_stock,updated_at,user_id,target_price&is_deleted=eq.false")
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}] Checking {len(products)} products...")
 
     now = datetime.now(timezone.utc).isoformat()
@@ -207,6 +207,25 @@ def main():
                 if p.get("image_url"):
                     embed["thumbnail"] = {"url": p["image_url"]}
                 alerts.append(embed)
+
+            # 목표가 도달 알림
+            target_price = p.get("target_price")
+            if target_price and price_changed and info["price"] <= target_price and old_price > target_price:
+                tgt_discount = round((1 - info["price"] / info["original_price"]) * 100) if info.get("original_price") else 0
+                tgt_embed = {
+                    "title": f"🎯 목표가 달성! {p.get('name', str(goods_no))}",
+                    "url": PRODUCT_URL + str(goods_no),
+                    "color": 0xf39c12,
+                    "fields": [
+                        {"name": "현재 가격", "value": f"**{info['price']:,}원**", "inline": True},
+                        {"name": "목표가", "value": f"{target_price:,}원", "inline": True},
+                        {"name": "정가 할인", "value": f"{tgt_discount}%", "inline": True},
+                    ],
+                    "footer": {"text": user_name},
+                }
+                if p.get("image_url"):
+                    tgt_embed["thumbnail"] = {"url": p["image_url"]}
+                alerts.append(tgt_embed)
 
         print(f"  {goods_no}: {info['price']:,}원" + (" [SOLD OUT]" if info["is_sold_out"] else ""))
         updated += 1

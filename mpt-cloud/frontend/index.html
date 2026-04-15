@@ -154,6 +154,11 @@
         .product-card.sold-out img { filter: grayscale(0.8); }
         .product-info .lowest { font-size: 11px; color: #e44; margin-top: 2px; }
         .product-info .reg-price { font-size: 11px; color: #888; margin-top: 2px; }
+        .product-info .target-row { font-size: 11px; color: #aaa; margin-top: 2px; cursor: pointer; display: inline-block; }
+        .product-info .target-row:hover { color: #555; text-decoration: underline; }
+        .badge-target-hit { background: #fff8e1; color: #e65100; border: 1px solid #ffca28; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+        .product-card.target-hit { background: #fffde7; }
+        .target-edit-input { width: 90px; font-size: 12px; padding: 2px 6px; border: 1.5px solid #ffca28; border-radius: 4px; outline: none; }
         .product-info .reg-date { font-size: 10px; color: #bbb; margin-top: 2px; }
         .product-actions { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
         .btn-sm {
@@ -683,9 +688,10 @@
                 const discPct = p.original_price > p.current_price
                     ? Math.round((1 - p.current_price / p.original_price) * 100) : 0;
                 const priceColorClass = discPct >= 30 ? 'deal-high' : discPct >= 20 ? 'deal-mid' : discPct >= 10 ? 'deal-low' : '';
+                const isTargetHit = p.target_price && p.current_price <= p.target_price;
 
                 return `
-                <div class="product-card${p.is_sold_out ? ' sold-out' : ''}${p.is_unliked ? ' unliked' : ''} ${changeClass}" onclick="onCardClick(event, '${p.id}', '${esc(p.name)}')">
+                <div class="product-card${p.is_sold_out ? ' sold-out' : ''}${p.is_unliked ? ' unliked' : ''}${isTargetHit ? ' target-hit' : ''} ${changeClass}" onclick="onCardClick(event, '${p.id}', '${esc(p.name)}')">
                     <input type="checkbox" class="select-cb" ${checked} onclick="event.stopPropagation(); toggleSelect('${p.id}')" />
                     <img src="${p.image_url || ''}" alt="" onerror="this.src='https://placehold.co/90x90?text=No+Img'">
                     <div class="product-info">
@@ -703,10 +709,12 @@
                             ${discPct > 0 ? `<span class="discount-badge badge-down${priceColorClass === 'deal-high' ? ' deal-high' : ''}">${discPct}%</span>` : ''}
                             ${dr !== 0 ? `<span class="discount-badge ${badgeClass}">${badgeText}</span>` : ''}
                             ${isLowest ? '<span class="badge-lowest">🏆 최저가</span>' : ''}
+                            ${isTargetHit ? '<span class="badge-target-hit">🎯 목표가!</span>' : ''}
                             ${changeIndicator}
                         </div>
                         ${p.initial_price && p.initial_price !== p.current_price ? `<div class="reg-price">등록가 ${fmt(p.initial_price)}원</div>` : ''}
                         ${p.lowest_price && p.lowest_price < p.current_price ? `<div class="lowest">최저 ${fmt(p.lowest_price)}원</div>` : ''}
+                        <div class="target-row" onclick="editTargetPrice(event, '${p.id}', ${p.target_price || 0})">🎯 목표가: ${p.target_price ? fmt(p.target_price) + '원' : '미설정'}</div>
                         ${p.review_count > 0 ? `<div class="review-info">⭐ ${p.review_score || 0} (${p.review_count})</div>` : ''}
                         <div class="reg-date">${p.created_at ? new Date(p.created_at).toLocaleDateString('ko-KR') : ''}</div>
                     </div>
@@ -832,6 +840,9 @@
                     }
                     const info = await fetchMusinsaGoods(goodsNo);
                     if (!info) { showToast('상품 정보를 가져올 수 없습니다'); return; }
+                    const autoTarget = info.original_price > 0
+                        ? Math.round(info.original_price * 0.8)
+                        : Math.round(info.price * 0.85);
                     await sb.from('product').upsert({
                         id: productId, goods_no: goodsNo, name: info.name, image_url: info.image_url,
                         product_url: 'https://www.musinsa.com/products/' + goodsNo,
@@ -842,6 +853,7 @@
                         is_soon_out_of_stock: info.is_soon_out_of_stock,
                         review_count: info.review_count, review_score: info.review_score,
                         user_id: currentUserId,
+                        target_price: autoTarget,
                         is_deleted: false, deleted_at: null,
                     });
                     await sb.from('price_history').insert({
@@ -922,6 +934,9 @@
                     const info = await fetchMusinsaGoods(gno);
                     if (!info) throw new Error('fetch fail');
                     const pid = gno + '_' + currentUserId;
+                    const autoTarget = info.original_price > 0
+                        ? Math.round(info.original_price * 0.8)
+                        : Math.round(info.price * 0.85);
                     await sb.from('product').upsert({
                         id: pid, goods_no: gno, name: info.name, image_url: info.image_url,
                         product_url: 'https://www.musinsa.com/products/' + gno,
@@ -932,6 +947,7 @@
                         is_soon_out_of_stock: info.is_soon_out_of_stock,
                         review_count: info.review_count, review_score: info.review_score,
                         user_id: currentUserId,
+                        target_price: autoTarget,
                         is_deleted: false, deleted_at: null,
                     });
                     await sb.from('price_history').insert({
@@ -1029,6 +1045,38 @@
             } catch (e) {
                 showToast('복원 실패: ' + e.message);
             }
+        }
+
+        // ============ TARGET PRICE ============
+        async function editTargetPrice(event, productId, currentTarget) {
+            event.stopPropagation();
+            const span = event.currentTarget;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.className = 'target-edit-input';
+            input.value = currentTarget || '';
+            input.placeholder = '목표가 입력';
+            input.onclick = e => e.stopPropagation();
+            span.replaceWith(input);
+            input.focus();
+            input.select();
+            let saved = false;
+            const save = async () => {
+                if (saved) return;
+                saved = true;
+                const val = parseInt(input.value);
+                if (!isNaN(val) && val > 0) {
+                    await sb.from('product').update({ target_price: val }).eq('id', productId);
+                } else if (input.value === '') {
+                    await sb.from('product').update({ target_price: null }).eq('id', productId);
+                }
+                await loadProducts();
+            };
+            input.addEventListener('blur', save);
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') input.blur();
+                if (e.key === 'Escape') { saved = true; loadProducts(); }
+            });
         }
 
         // ============ CHART ============
