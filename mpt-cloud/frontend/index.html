@@ -154,7 +154,9 @@
         .product-card.sold-out img { filter: grayscale(0.8); }
         .product-info .lowest { font-size: 11px; color: #e44; margin-top: 2px; }
         .product-info .reg-price { font-size: 11px; color: #888; margin-top: 2px; }
-        .product-info .target-row { font-size: 11px; color: #aaa; margin-top: 2px; cursor: pointer; display: inline-block; }
+        .product-info .meta-row { display: flex; justify-content: space-between; align-items: center; }
+        .product-info .meta-right { display: flex; gap: 8px; align-items: center; font-size: 11px; color: #aaa; flex-shrink: 0; }
+        .product-info .target-row { cursor: pointer; white-space: nowrap; }
         .product-info .target-row:hover { color: #555; text-decoration: underline; }
         .badge-target-hit { background: #fff8e1; color: #e65100; border: 1px solid #ffca28; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
         .product-card.target-hit { background: #fffde7; }
@@ -695,12 +697,18 @@
                     <input type="checkbox" class="select-cb" ${checked} onclick="event.stopPropagation(); toggleSelect('${p.id}')" />
                     <img src="${p.image_url || ''}" alt="" onerror="this.src='https://placehold.co/90x90?text=No+Img'">
                     <div class="product-info">
-                        <div>
-                            <span class="brand">${p.brand_name || ''}</span>
-                            ${p.category ? `<span class="category-tag">${p.category}</span>` : ''}
-                            ${p.is_sold_out ? '<span class="badge-soldout">품절</span>' : ''}
-                            ${!p.is_sold_out && p.is_soon_out_of_stock ? '<span class="badge-soon-oos">품절임박</span>' : ''}
-                            ${p.is_unliked ? '<span class="badge-unliked">좋아요 해제</span>' : ''}
+                        <div class="meta-row">
+                            <div>
+                                <span class="brand">${p.brand_name || ''}</span>
+                                ${p.category ? `<span class="category-tag">${p.category}</span>` : ''}
+                                ${p.is_sold_out ? '<span class="badge-soldout">품절</span>' : ''}
+                                ${!p.is_sold_out && p.is_soon_out_of_stock ? '<span class="badge-soon-oos">품절임박</span>' : ''}
+                                ${p.is_unliked ? '<span class="badge-unliked">좋아요 해제</span>' : ''}
+                            </div>
+                            <div class="meta-right">
+                                ${p.review_count > 0 ? `<span>⭐ ${p.review_score || 0} (${p.review_count})</span>` : ''}
+                                <span class="target-row" onclick="editTargetPrice(event, '${p.id}', ${p.target_price || 0})">🎯 ${p.target_price ? fmt(p.target_price) + '원' : '미설정'}</span>
+                            </div>
                         </div>
                         <div class="name" title="${esc(p.name)}">${p.name}</div>
                         <div class="price-row">
@@ -714,8 +722,6 @@
                         </div>
                         ${p.initial_price && p.initial_price !== p.current_price ? `<div class="reg-price">등록가 ${fmt(p.initial_price)}원</div>` : ''}
                         ${p.lowest_price && p.lowest_price < p.current_price ? `<div class="lowest">최저 ${fmt(p.lowest_price)}원</div>` : ''}
-                        <div class="target-row" onclick="editTargetPrice(event, '${p.id}', ${p.target_price || 0})">🎯 목표가: ${p.target_price ? fmt(p.target_price) + '원' : '미설정'}</div>
-                        ${p.review_count > 0 ? `<div class="review-info">⭐ ${p.review_score || 0} (${p.review_count})</div>` : ''}
                         <div class="reg-date">${p.created_at ? new Date(p.created_at).toLocaleDateString('ko-KR') : ''}</div>
                     </div>
                     <div class="product-actions" onclick="event.stopPropagation()">
