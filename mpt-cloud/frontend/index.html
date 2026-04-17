@@ -309,7 +309,7 @@
 
         <!-- 검색 -->
         <div class="search-box">
-            <input type="text" id="searchInput" placeholder="상품명 또는 브랜드 검색..." oninput="renderProducts()">
+            <input type="text" id="searchInput" placeholder="상품명 또는 브랜드 검색..." oninput="updateFilters();renderProducts()">
         </div>
 
         <div class="filter-bar">
@@ -517,25 +517,46 @@
         }
 
         function updateFilters() {
-            // 품절/해제 숨기기 필터를 적용한 기준 풀
+            // 모든 활성 조건을 적용한 기준 풀
             let basePool = allProducts;
             if (hideSoldout) basePool = basePool.filter(p => !p.is_sold_out);
             if (hideUnliked) basePool = basePool.filter(p => !p.is_unliked);
 
-            const cats = [...new Set(basePool.map(p => p.category).filter(Boolean))].sort();
+            const searchQuery = document.getElementById('searchInput').value.trim().toLowerCase();
+            if (searchQuery) basePool = basePool.filter(p =>
+                (p.name && p.name.toLowerCase().includes(searchQuery)) ||
+                (p.brand_name && p.brand_name.toLowerCase().includes(searchQuery))
+            );
 
-            // 브랜드는 카테고리가 선택된 경우 해당 카테고리 상품에서만 추출
+            if (document.getElementById('priceFilterOn').checked) {
+                const minVal = document.getElementById('priceMin').value;
+                const maxVal = document.getElementById('priceMax').value;
+                const min = minVal ? parseInt(minVal) * 10000 : 0;
+                const max = maxVal ? parseInt(maxVal) * 10000 : Infinity;
+                basePool = basePool.filter(p => p.current_price >= min && p.current_price <= max);
+            }
+
+            // 카테고리 목록: 선택된 브랜드 기준으로 좁힘
+            const catPool = selectedBrands.size > 0
+                ? basePool.filter(p => selectedBrands.has(p.brand_name))
+                : basePool;
+            const cats = [...new Set(catPool.map(p => p.category).filter(Boolean))].sort();
+
+            // 브랜드 목록: 선택된 카테고리 기준으로 좁힘
             const brandPool = selectedCats.size > 0
                 ? basePool.filter(p => selectedCats.has(p.category))
                 : basePool;
             const brands = [...new Set(brandPool.map(p => p.brand_name).filter(Boolean))].sort();
 
-            // 선택된 브랜드 중 더 이상 풀에 없는 것은 제거
+            // 더 이상 풀에 없는 선택 항목 제거
+            for (const c of [...selectedCats]) {
+                if (!cats.includes(c)) selectedCats.delete(c);
+            }
             for (const b of [...selectedBrands]) {
                 if (!brands.includes(b)) selectedBrands.delete(b);
             }
 
-            buildCheckboxDropdown('categoryDropdown', cats, selectedCats, 'cat', basePool);
+            buildCheckboxDropdown('categoryDropdown', cats, selectedCats, 'cat', catPool);
             buildCheckboxDropdown('brandDropdown', brands, selectedBrands, 'brand', brandPool);
             updateFilterBtnText();
         }
@@ -565,6 +586,7 @@
 
         function onFilterChange() {
             saveState();
+            updateFilters();
             renderProducts();
         }
 
