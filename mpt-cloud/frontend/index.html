@@ -517,19 +517,34 @@
         }
 
         function updateFilters() {
-            const cats = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
-            const brands = [...new Set(allProducts.map(p => p.brand_name).filter(Boolean))].sort();
+            // 품절/해제 숨기기 필터를 적용한 기준 풀
+            let basePool = allProducts;
+            if (hideSoldout) basePool = basePool.filter(p => !p.is_sold_out);
+            if (hideUnliked) basePool = basePool.filter(p => !p.is_unliked);
 
-            buildCheckboxDropdown('categoryDropdown', cats, selectedCats, 'cat');
-            buildCheckboxDropdown('brandDropdown', brands, selectedBrands, 'brand');
+            const cats = [...new Set(basePool.map(p => p.category).filter(Boolean))].sort();
+
+            // 브랜드는 카테고리가 선택된 경우 해당 카테고리 상품에서만 추출
+            const brandPool = selectedCats.size > 0
+                ? basePool.filter(p => selectedCats.has(p.category))
+                : basePool;
+            const brands = [...new Set(brandPool.map(p => p.brand_name).filter(Boolean))].sort();
+
+            // 선택된 브랜드 중 더 이상 풀에 없는 것은 제거
+            for (const b of [...selectedBrands]) {
+                if (!brands.includes(b)) selectedBrands.delete(b);
+            }
+
+            buildCheckboxDropdown('categoryDropdown', cats, selectedCats, 'cat', basePool);
+            buildCheckboxDropdown('brandDropdown', brands, selectedBrands, 'brand', brandPool);
             updateFilterBtnText();
         }
 
-        function buildCheckboxDropdown(containerId, items, selectedSet, type) {
+        function buildCheckboxDropdown(containerId, items, selectedSet, type, pool) {
             const container = document.getElementById(containerId);
             const countMap = {};
             const field = type === 'cat' ? 'category' : 'brand_name';
-            allProducts.forEach(p => {
+            pool.forEach(p => {
                 const val = p[field];
                 if (val) countMap[val] = (countMap[val] || 0) + 1;
             });
@@ -544,7 +559,7 @@
             const set = type === 'cat' ? selectedCats : selectedBrands;
             if (cb.checked) set.add(cb.value);
             else set.delete(cb.value);
-            updateFilterBtnText();
+            updateFilters();
             onFilterChange();
         }
 
@@ -754,6 +769,7 @@
             btn.textContent = hideSoldout ? '품절 보기' : '품절 숨기기';
             btn.classList.toggle('active', hideSoldout);
             saveState();
+            updateFilters();
             renderProducts();
         }
 
@@ -763,6 +779,7 @@
             btn.textContent = hideUnliked ? '해제 보기' : '해제 숨기기';
             btn.classList.toggle('active', hideUnliked);
             saveState();
+            updateFilters();
             renderProducts();
         }
 
