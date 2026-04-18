@@ -101,19 +101,34 @@
         .multi-select-grid .filter-count { font-size: 11px; color: #aaa; margin-left: auto; }
         .multi-select-dropdown input[type="checkbox"] { accent-color: #000; flex-shrink: 0; }
 
-        /* 가격 필터 */
-        .price-filter {
-            display: flex; align-items: center; gap: 4px;
-            padding: 4px 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff;
+        /* 가격 필터 히스토그램 */
+        .price-range-dropdown { width: 280px; padding: 16px; }
+        .price-histogram { display: flex; align-items: flex-end; gap: 2px; height: 60px; margin-bottom: 4px; }
+        .price-histogram .bar { flex: 1; background: #ddd; border-radius: 2px 2px 0 0; min-height: 2px; transition: background 0.15s; }
+        .price-histogram .bar.active { background: #222; }
+        /* 듀얼 슬라이더 */
+        .price-slider-wrap { position: relative; height: 28px; margin-bottom: 10px; }
+        .price-slider-track { position: absolute; top: 12px; left: 0; right: 0; height: 4px; background: #ddd; border-radius: 2px; }
+        .price-slider-range { position: absolute; top: 12px; height: 4px; background: #222; border-radius: 2px; }
+        .price-slider-wrap input[type=range] {
+            position: absolute; width: 100%; top: 4px;
+            appearance: none; -webkit-appearance: none;
+            background: transparent; pointer-events: none; outline: none; margin: 0; padding: 0;
         }
-        .price-filter label { font-size: 13px; white-space: nowrap; cursor: pointer; display: flex; align-items: center; gap: 4px; }
-        .price-filter input[type="number"] {
-            width: 50px; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px;
-            font-size: 12px; text-align: center; outline: none;
+        .price-slider-wrap input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 20px; height: 20px;
+            background: #fff; border: 2px solid #222; border-radius: 50%;
+            cursor: pointer; pointer-events: all;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
         }
-        .price-filter input[type="number"]:focus { border-color: #000; }
-        .price-filter input[type="checkbox"] { accent-color: #000; }
-        .price-filter span { font-size: 13px; color: #999; }
+        .price-slider-wrap input[type=range]::-moz-range-thumb {
+            width: 20px; height: 20px;
+            background: #fff; border: 2px solid #222; border-radius: 50%;
+            cursor: pointer; pointer-events: all;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+        }
+        .price-range-label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: #222; }
 
         /* 상품 목록 */
         .product-list { display: grid; gap: 12px; }
@@ -321,12 +336,24 @@
                 <button class="multi-select-btn" onclick="toggleDropdown('brandSelect')">전체 브랜드</button>
                 <div class="multi-select-dropdown" id="brandDropdown"></div>
             </div>
-            <div class="price-filter">
-                <label><input type="checkbox" id="priceFilterOn" onchange="onFilterChange()"> 가격</label>
-                <input type="number" id="priceMin" placeholder="0" onchange="onFilterChange()">
-                <span>~</span>
-                <input type="number" id="priceMax" placeholder="∞" onchange="onFilterChange()">
-                <span style="font-size:11px;color:#999">만원</span>
+            <div class="multi-select" id="priceSelect">
+                <button class="multi-select-btn" id="priceBtn" onclick="toggleDropdown('priceSelect')">가격대</button>
+                <div class="multi-select-dropdown price-range-dropdown" id="priceDropdown">
+                    <div class="price-histogram" id="priceHistogram"></div>
+                    <div class="price-slider-wrap">
+                        <div class="price-slider-track"></div>
+                        <div class="price-slider-range" id="priceSliderRange"></div>
+                        <input type="range" id="priceSliderMin" min="0" max="100" value="0" step="1" oninput="onPriceSlider('min')">
+                        <input type="range" id="priceSliderMax" min="0" max="100" value="100" step="1" oninput="onPriceSlider('max')">
+                    </div>
+                    <div class="price-range-label">
+                        <span id="priceRangeMinLabel">-</span>
+                        <span id="priceRangeMaxLabel">-</span>
+                    </div>
+                </div>
+                <input type="checkbox" id="priceFilterOn" style="display:none">
+                <input type="number" id="priceMin" style="display:none">
+                <input type="number" id="priceMax" style="display:none">
             </div>
             <select id="sortSelect" onchange="changeSort(this.value)">
                 <option value="discount_desc">할인 큰순 ↓</option>
@@ -394,6 +421,9 @@
         let priceChanges = {}; // id -> 'down' | 'up'
         let undoData = null;
         let undoTimer = null;
+        let priceGlobalMin = 0, priceGlobalMax = 0;
+        let priceCurrentMin = 0, priceCurrentMax = 0;
+        const PRICE_BINS = 20;
 
         // ============ INIT ============
         async function init() {
@@ -490,6 +520,8 @@
                 document.getElementById('priceFilterOn').checked = !!s.priceFilterOn;
                 document.getElementById('priceMin').value = s.priceMin || '';
                 document.getElementById('priceMax').value = s.priceMax || '';
+                if (s.priceFilterOn && s.priceMin) priceCurrentMin = parseInt(s.priceMin) * 10000;
+                if (s.priceFilterOn && s.priceMax) priceCurrentMax = parseInt(s.priceMax) * 10000;
                 document.getElementById('searchInput').value = s.searchQuery || '';
                 if (hideSoldout) {
                     const btn = document.getElementById('soldoutBtn');
@@ -558,6 +590,13 @@
 
             buildCheckboxDropdown('categoryDropdown', cats, selectedCats, 'cat', catPool);
             buildCheckboxDropdown('brandDropdown', brands, selectedBrands, 'brand', brandPool);
+
+            // 히스토그램: 가격 필터 제외, 카테고리/브랜드는 적용된 풀
+            const histPool = basePool
+                .filter(p => selectedCats.size === 0 || selectedCats.has(p.category))
+                .filter(p => selectedBrands.size === 0 || selectedBrands.has(p.brand_name));
+            buildPriceDropdown(histPool);
+
             updateFilterBtnText();
         }
 
@@ -608,6 +647,121 @@
             } else {
                 brandBtn.textContent = `브랜드 (${selectedBrands.size})`;
                 brandBtn.classList.add('has-selection');
+            }
+        }
+
+        function buildPriceDropdown(histPool) {
+            const prices = (histPool && histPool.length ? histPool : allProducts)
+                .map(p => p.current_price).filter(v => v > 0);
+            if (!prices.length) return;
+
+            const rawMin = Math.min(...prices);
+            const rawMax = Math.max(...prices);
+            priceGlobalMin = Math.floor(rawMin / 1000) * 1000;
+            priceGlobalMax = Math.ceil(rawMax / 1000) * 1000;
+            if (priceGlobalMin === priceGlobalMax) priceGlobalMax = priceGlobalMin + 10000;
+
+            // 처음 로드 시 저장값 복원
+            if (priceCurrentMin === 0 && priceCurrentMax === 0) {
+                const savedMin = parseInt(document.getElementById('priceMin').value);
+                const savedMax = parseInt(document.getElementById('priceMax').value);
+                priceCurrentMin = savedMin ? savedMin * 10000 : priceGlobalMin;
+                priceCurrentMax = savedMax ? savedMax * 10000 : priceGlobalMax;
+            }
+            priceCurrentMin = Math.max(priceGlobalMin, Math.min(priceCurrentMin, priceGlobalMax));
+            priceCurrentMax = Math.max(priceGlobalMin, Math.min(priceCurrentMax, priceGlobalMax));
+
+            // 히스토그램 빌드
+            const range = priceGlobalMax - priceGlobalMin || 1;
+            const binSize = range / PRICE_BINS;
+            const bins = Array(PRICE_BINS).fill(0);
+            prices.forEach(p => {
+                const idx = Math.min(Math.floor((p - priceGlobalMin) / binSize), PRICE_BINS - 1);
+                bins[idx]++;
+            });
+            const maxBin = Math.max(...bins, 1);
+
+            const hist = document.getElementById('priceHistogram');
+            if (!hist) return;
+            hist.innerHTML = bins.map((cnt, i) => {
+                const barMin = priceGlobalMin + i * binSize;
+                const barMax = barMin + binSize;
+                const active = barMax > priceCurrentMin && barMin < priceCurrentMax;
+                const h = Math.max(2, Math.round((cnt / maxBin) * 100));
+                return `<div class="bar${active ? ' active' : ''}" style="height:${h}%"></div>`;
+            }).join('');
+
+            // 슬라이더 위치 업데이트
+            const sliderMin = document.getElementById('priceSliderMin');
+            const sliderMax = document.getElementById('priceSliderMax');
+            if (!sliderMin || !sliderMax) return;
+            sliderMin.value = Math.round(((priceCurrentMin - priceGlobalMin) / range) * 100);
+            sliderMax.value = Math.round(((priceCurrentMax - priceGlobalMin) / range) * 100);
+            updatePriceSliderUI();
+            updatePriceBtn();
+        }
+
+        function onPriceSlider(type) {
+            const sliderMin = document.getElementById('priceSliderMin');
+            const sliderMax = document.getElementById('priceSliderMax');
+            let minVal = parseInt(sliderMin.value);
+            let maxVal = parseInt(sliderMax.value);
+            if (type === 'min' && minVal > maxVal) { minVal = maxVal; sliderMin.value = minVal; }
+            if (type === 'max' && maxVal < minVal) { maxVal = minVal; sliderMax.value = maxVal; }
+
+            const range = priceGlobalMax - priceGlobalMin || 1;
+            priceCurrentMin = priceGlobalMin + Math.round((minVal / 100) * range);
+            priceCurrentMax = priceGlobalMin + Math.round((maxVal / 100) * range);
+
+            updatePriceSliderUI();
+            updatePriceHiddenInputs();
+            updateFilters();
+            renderProducts();
+        }
+
+        function updatePriceSliderUI() {
+            const sliderMin = document.getElementById('priceSliderMin');
+            const sliderMax = document.getElementById('priceSliderMax');
+            if (!sliderMin || !sliderMax) return;
+            const minPct = parseInt(sliderMin.value);
+            const maxPct = parseInt(sliderMax.value);
+
+            const rangeEl = document.getElementById('priceSliderRange');
+            if (rangeEl) { rangeEl.style.left = minPct + '%'; rangeEl.style.width = (maxPct - minPct) + '%'; }
+
+            const minLabel = document.getElementById('priceRangeMinLabel');
+            const maxLabel = document.getElementById('priceRangeMaxLabel');
+            if (minLabel) minLabel.textContent = fmt(priceCurrentMin) + '원';
+            if (maxLabel) maxLabel.textContent = priceCurrentMax >= priceGlobalMax ? '최대' : fmt(priceCurrentMax) + '원';
+
+            // 히스토그램 active 업데이트
+            const range = priceGlobalMax - priceGlobalMin || 1;
+            const binSize = range / PRICE_BINS;
+            document.querySelectorAll('#priceHistogram .bar').forEach((bar, i) => {
+                const barMin = priceGlobalMin + i * binSize;
+                const barMax = barMin + binSize;
+                bar.classList.toggle('active', barMax > priceCurrentMin && barMin < priceCurrentMax);
+            });
+        }
+
+        function updatePriceHiddenInputs() {
+            const isFiltered = priceCurrentMin > priceGlobalMin || priceCurrentMax < priceGlobalMax;
+            document.getElementById('priceFilterOn').checked = isFiltered;
+            document.getElementById('priceMin').value = isFiltered ? Math.round(priceCurrentMin / 10000) : '';
+            document.getElementById('priceMax').value = isFiltered ? Math.round(priceCurrentMax / 10000) : '';
+            saveState();
+        }
+
+        function updatePriceBtn() {
+            const btn = document.getElementById('priceBtn');
+            if (!btn) return;
+            const isFiltered = document.getElementById('priceFilterOn').checked;
+            if (isFiltered) {
+                btn.textContent = `${fmt(priceCurrentMin)}~${fmt(priceCurrentMax)}원`;
+                btn.classList.add('has-selection');
+            } else {
+                btn.textContent = '가격대';
+                btn.classList.remove('has-selection');
             }
         }
 
@@ -683,6 +837,10 @@
             document.getElementById('priceFilterOn').checked = false;
             document.getElementById('priceMin').value = '';
             document.getElementById('priceMax').value = '';
+            priceCurrentMin = priceGlobalMin;
+            priceCurrentMax = priceGlobalMax;
+            const pBtn = document.getElementById('priceBtn');
+            if (pBtn) { pBtn.textContent = '가격대'; pBtn.classList.remove('has-selection'); }
             document.getElementById('searchInput').value = '';
             document.getElementById('soldoutBtn').textContent = '품절 숨기기';
             document.getElementById('soldoutBtn').classList.remove('active');
