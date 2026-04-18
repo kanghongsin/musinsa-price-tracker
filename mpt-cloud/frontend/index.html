@@ -73,6 +73,17 @@
         .filter-bar .count { font-size: 13px; color: #888; margin-left: auto; }
         .btn-reset { color: #e44 !important; border-color: #fcc !important; }
         .btn-reset:hover { background: #fee !important; }
+        /* 활성 필터 태그 */
+        .active-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; min-height: 0; }
+        .active-filters:empty { padding: 0; }
+        .filter-chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 10px; background: #111; color: #fff;
+            border-radius: 20px; font-size: 12px; cursor: pointer;
+            transition: background 0.15s;
+        }
+        .filter-chip:hover { background: #444; }
+        .filter-chip .chip-x { font-size: 14px; line-height: 1; margin-left: 2px; opacity: 0.7; }
 
         /* 체크박스 드롭다운 */
         .multi-select { position: relative; display: inline-block; }
@@ -104,8 +115,10 @@
         /* 가격 필터 히스토그램 */
         .price-range-dropdown { width: 280px; padding: 16px; }
         .price-histogram { display: flex; align-items: flex-end; gap: 2px; height: 60px; margin-bottom: 4px; }
-        .price-histogram .bar { flex: 1; background: #ddd; border-radius: 2px 2px 0 0; min-height: 2px; transition: background 0.15s; }
+        .price-histogram .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; position: relative; }
+        .price-histogram .bar { width: 100%; background: #ddd; border-radius: 2px 2px 0 0; min-height: 2px; transition: background 0.15s; }
         .price-histogram .bar.active { background: #222; }
+        .price-histogram .bar-count { font-size: 8px; color: #888; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); white-space: nowrap; }
         /* 듀얼 슬라이더 */
         .price-slider-wrap { position: relative; height: 28px; margin-bottom: 10px; }
         .price-slider-track { position: absolute; top: 12px; left: 0; right: 0; height: 4px; background: #ddd; border-radius: 2px; }
@@ -371,6 +384,9 @@
             <span class="count" id="countLabel"></span>
         </div>
 
+        <!-- 활성 필터 태그 -->
+        <div class="active-filters" id="activeFilters"></div>
+
         <!-- 선택 모드 바 -->
         <div class="select-mode-bar" id="selectModeBar">
             <span class="sel-count" id="selCount">0개 선택</span>
@@ -560,6 +576,9 @@
                 (p.brand_name && p.brand_name.toLowerCase().includes(searchQuery))
             );
 
+            // 히스토그램용: 가격 필터 적용 전 풀 (슬라이더 조작 시 범위 재계산 방지)
+            const basePoolNoPrice = basePool;
+
             if (document.getElementById('priceFilterOn').checked) {
                 const minVal = document.getElementById('priceMin').value;
                 const maxVal = document.getElementById('priceMax').value;
@@ -591,13 +610,14 @@
             buildCheckboxDropdown('categoryDropdown', cats, selectedCats, 'cat', catPool);
             buildCheckboxDropdown('brandDropdown', brands, selectedBrands, 'brand', brandPool);
 
-            // 히스토그램: 가격 필터 제외, 카테고리/브랜드는 적용된 풀
-            const histPool = basePool
+            // 히스토그램: 가격 필터 제외(basePoolNoPrice), 카테고리/브랜드는 적용
+            const histPool = basePoolNoPrice
                 .filter(p => selectedCats.size === 0 || selectedCats.has(p.category))
                 .filter(p => selectedBrands.size === 0 || selectedBrands.has(p.brand_name));
             buildPriceDropdown(histPool);
 
             updateFilterBtnText();
+            renderActiveFilters();
         }
 
         function buildCheckboxDropdown(containerId, items, selectedSet, type, pool) {
@@ -624,6 +644,70 @@
         }
 
         function onFilterChange() {
+            saveState();
+            updateFilters();
+            renderProducts();
+        }
+
+        function renderActiveFilters() {
+            const container = document.getElementById('activeFilters');
+            if (!container) return;
+            const chips = [];
+
+            // 카테고리
+            for (const cat of [...selectedCats].sort()) {
+                chips.push(`<span class="filter-chip" onclick="removeFilterChip('cat','${esc(cat)}')">${cat} <span class="chip-x">×</span></span>`);
+            }
+            // 브랜드
+            for (const brand of [...selectedBrands].sort()) {
+                chips.push(`<span class="filter-chip" onclick="removeFilterChip('brand','${esc(brand)}')">${brand} <span class="chip-x">×</span></span>`);
+            }
+            // 가격
+            if (document.getElementById('priceFilterOn').checked) {
+                const label = `${fmt(priceCurrentMin)}~${priceCurrentMax >= priceGlobalMax ? '최대' : fmt(priceCurrentMax) + '원'}`;
+                chips.push(`<span class="filter-chip" onclick="removeFilterChip('price','')">${label} <span class="chip-x">×</span></span>`);
+            }
+            // 품절 숨기기
+            if (hideSoldout) {
+                chips.push(`<span class="filter-chip" onclick="removeFilterChip('soldout','')">"품절" 숨김 <span class="chip-x">×</span></span>`);
+            }
+            // 해제 숨기기
+            if (hideUnliked) {
+                chips.push(`<span class="filter-chip" onclick="removeFilterChip('unliked','')">"해제" 숨김 <span class="chip-x">×</span></span>`);
+            }
+            // 검색어
+            const sq = document.getElementById('searchInput').value.trim();
+            if (sq) {
+                chips.push(`<span class="filter-chip" onclick="removeFilterChip('search','')">"${sq}" <span class="chip-x">×</span></span>`);
+            }
+
+            container.innerHTML = chips.join('');
+        }
+
+        function removeFilterChip(type, value) {
+            if (type === 'cat') {
+                selectedCats.delete(value);
+            } else if (type === 'brand') {
+                selectedBrands.delete(value);
+            } else if (type === 'price') {
+                priceCurrentMin = priceGlobalMin;
+                priceCurrentMax = priceGlobalMax;
+                document.getElementById('priceFilterOn').checked = false;
+                document.getElementById('priceMin').value = '';
+                document.getElementById('priceMax').value = '';
+                const pBtn = document.getElementById('priceBtn');
+                if (pBtn) { pBtn.textContent = '가격대'; pBtn.classList.remove('has-selection'); }
+            } else if (type === 'soldout') {
+                hideSoldout = false;
+                const btn = document.getElementById('soldoutBtn');
+                btn.textContent = '품절 숨기기'; btn.classList.remove('active');
+            } else if (type === 'unliked') {
+                hideUnliked = false;
+                const btn = document.getElementById('unlikedBtn');
+                btn.textContent = '해제 숨기기'; btn.classList.remove('active');
+            } else if (type === 'search') {
+                document.getElementById('searchInput').value = '';
+            }
             saveState();
             updateFilters();
             renderProducts();
@@ -688,7 +772,8 @@
                 const barMax = barMin + binSize;
                 const active = barMax > priceCurrentMin && barMin < priceCurrentMax;
                 const h = Math.max(2, Math.round((cnt / maxBin) * 100));
-                return `<div class="bar${active ? ' active' : ''}" style="height:${h}%"></div>`;
+                const label = cnt > 0 ? `<span class="bar-count">${cnt}</span>` : '';
+                return `<div class="bar-wrap"><div class="bar${active ? ' active' : ''}" style="height:${h}%"></div>${label}</div>`;
             }).join('');
 
             // 슬라이더 위치 업데이트
@@ -715,7 +800,6 @@
 
             updatePriceSliderUI();
             updatePriceHiddenInputs();
-            updateFilters();
             renderProducts();
         }
 
@@ -750,6 +834,7 @@
             document.getElementById('priceMin').value = isFiltered ? Math.round(priceCurrentMin / 10000) : '';
             document.getElementById('priceMax').value = isFiltered ? Math.round(priceCurrentMax / 10000) : '';
             saveState();
+            renderActiveFilters();
         }
 
         function updatePriceBtn() {
