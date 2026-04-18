@@ -794,7 +794,7 @@
                 const active = barMax > priceCurrentMin && barMin < priceCurrentMax;
                 const h = Math.max(2, Math.round((cnt / maxBin) * 100));
                 const label = cnt > 0 ? `<span class="bar-count">${cnt}</span>` : '';
-                return `<div class="bar-wrap"><div class="bar${active ? ' active' : ''}" style="height:${h}%"></div>${label}</div>`;
+                return `<div class="bar-wrap" onclick="onHistogramBarClick(${i})" style="cursor:pointer"><div class="bar${active ? ' active' : ''}" style="height:${h}%"></div>${label}</div>`;
             }).join('');
 
             // 슬라이더 위치 업데이트
@@ -805,6 +805,33 @@
             sliderMax.value = Math.round(((priceCurrentMax - priceGlobalMin) / range) * 100);
             updatePriceSliderUI();
             updatePriceBtn();
+        }
+
+        function onHistogramBarClick(binIdx) {
+            const range = priceGlobalMax - priceGlobalMin || 1;
+            const binSize = range / PRICE_BINS;
+            const barMin = priceGlobalMin + binIdx * binSize;
+            const barMax = barMin + binSize;
+            const barMid = (barMin + barMax) / 2;
+            const currentMid = (priceCurrentMin + priceCurrentMax) / 2;
+
+            if (barMid <= currentMid) {
+                // 클릭한 칸이 현재 중간보다 왼쪽 → 하한선 설정
+                priceCurrentMin = barMin;
+            } else {
+                // 오른쪽 → 상한선 설정
+                priceCurrentMax = barMax;
+            }
+
+            // 슬라이더 위치 동기화
+            const sliderMin = document.getElementById('priceSliderMin');
+            const sliderMax = document.getElementById('priceSliderMax');
+            sliderMin.value = Math.round(((priceCurrentMin - priceGlobalMin) / range) * 100);
+            sliderMax.value = Math.round(((priceCurrentMax - priceGlobalMin) / range) * 100);
+
+            updatePriceSliderUI();
+            updatePriceHiddenInputs();
+            renderProducts();
         }
 
         function onPriceSlider(type) {
